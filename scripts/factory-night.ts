@@ -1,9 +1,9 @@
 // scripts/factory-night.ts
-// Night-shift entry point. Runs Sandcastle against the labelled backlog.
-// Real implementation lands once @ai-hero/sandcastle is added (P6).
-// Today this is a guard rail: warn loudly if prereqs are missing.
+// Night-shift entry point. Verifies prereqs, then hands off to the
+// .sandcastle/main.mts orchestrator (parallel-planner-with-review template).
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 function check(cmd: string, hint: string): boolean {
   try {
@@ -23,9 +23,33 @@ ready =
   ready;
 ready = check("gh --version", "gh CLI not installed.") && ready;
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("✗ ANTHROPIC_API_KEY not set in environment.");
+if (!process.env.ANTHROPIC_API_KEY && !existsSync(".sandcastle/.env")) {
+  console.error(
+    "✗ ANTHROPIC_API_KEY not set and .sandcastle/.env is missing.\n" +
+      "  Copy .sandcastle/.env.example → .sandcastle/.env and fill it in,\n" +
+      "  or export ANTHROPIC_API_KEY in your shell.",
+  );
   ready = false;
+}
+
+const readyIssues = ((): number => {
+  try {
+    const out = execSync(
+      'gh issue list --state open --label "sandcastle:ready" --json number',
+      { stdio: ["ignore", "pipe", "ignore"] },
+    ).toString();
+    const parsed = JSON.parse(out) as { number: number }[];
+    return parsed.length;
+  } catch {
+    return -1;
+  }
+})();
+
+if (readyIssues === 0) {
+  console.warn(
+    "⚠ No issues labelled `sandcastle:ready`. The planner will exit immediately.\n" +
+      "  Add the label to issues you want built tonight, then re-run.",
+  );
 }
 
 if (!ready) {
@@ -35,9 +59,12 @@ if (!ready) {
   process.exit(1);
 }
 
-console.log("✓ Prereqs OK.");
-console.log(
-  "\nSandcastle wiring lands in P6. For now, run manually:\n" +
-    "  npx sandcastle init   # one-time\n" +
-    "  npx sandcastle run\n",
-);
+const queuedDesc = readyIssues >= 0 ? String(readyIssues) : "?";
+console.log(`✓ Prereqs OK. ${queuedDesc} sandcastle:ready issue(s) queued.\n`);
+
+const result = spawnSync("npx", ["tsx", ".sandcastle/main.mts"], {
+  stdio: "inherit",
+  shell: true,
+});
+
+process.exit(result.status ?? 1);

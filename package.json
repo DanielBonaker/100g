@@ -25,6 +25,7 @@
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {
+    "@ai-hero/sandcastle": "^0.5.7",
     "@types/node": "^22.10.0",
     "@vitest/ui": "^2.1.0",
     "eslint": "^9.16.0",

@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/*.d.ts",
       "eslint.config.js",
       "*.config.js",
+      ".sandcastle/**",
     ],
   },
   ...tseslint.configs.strictTypeChecked,
