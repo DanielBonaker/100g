@@ -1,0 +1,51 @@
+{
+  "name": "100g",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "100-day mini-game challenge — pixel art, TypeScript, DEEP modules",
+  "license": "MIT",
+  "author": "Daniel Bonaker <daniel.bonaker@qestit.com>",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "factory:morning": "tsx scripts/factory-morning.ts",
+    "factory:night": "tsx scripts/factory-night.ts",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "pixi.js": "^8.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/ui": "^2.1.0",
+    "eslint": "^9.16.0",
+    "happy-dom": "^15.11.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
+  },
+  "packageManager": "pnpm@10.29.3"
+}

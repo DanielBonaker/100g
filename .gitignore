@@ -1,0 +1,16 @@
+node_modules
+dist
+claude-cli.lnk
+.DS_Store
+*.log
+.env
+.env.local
+coverage
+.vite
+.turbo
+.idea
+.vscode/*
+!.vscode/extensions.json
+.sandcastle/runs
+.sandcastle/.cache
+*.tsbuildinfo
