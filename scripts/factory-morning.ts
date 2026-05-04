@@ -25,9 +25,9 @@ try {
 console.log("\n## Today's triaged backlog");
 try {
   const triaged = sh(
-    'gh issue list --state open --label "sandcastle:ready" --limit 20 --json number,title,labels --jq "[.[] | \\"#\\(.number) \\(.title)\\"] | join(\\"\\n\\")"',
+    'gh issue list --state open --label "night-shift" --limit 20 --json number,title,labels --jq "[.[] | \\"#\\(.number) \\(.title)\\"] | join(\\"\\n\\")"',
   );
-  console.log(triaged || "_(no issues labelled sandcastle:ready)_");
+  console.log(triaged || "_(no issues labelled night-shift)_");
 } catch {
   console.log("_(gh not configured)_");
 }
@@ -38,6 +38,6 @@ console.log(
     "- [ ] If new: invoke `superpowers:brainstorming` (drop into `/grill-me` for thorny branches)\n" +
     "- [ ] `/to-prd` → `docs/prds/`\n" +
     "- [ ] `/to-issues` to decompose into vertical slices\n" +
-    "- [ ] `/triage` and label `sandcastle:ready` what's ready\n" +
-    "- [ ] Run `pnpm factory:night` before bed\n",
+    "- [ ] `/triage` and label `night-shift` what's ready\n" +
+    "- [ ] Run `pnpm factory:night` before bed (prints launch instructions for the SDD-based night shift)\n",
 );

@@ -1,10 +1,10 @@
 # ISSUES
 
-Open issues labelled `sandcastle:ready` in the repo:
+Open issues labelled `night-shift` in the repo:
 
 <issues-json>
 
-!`gh issue list --state open --label "sandcastle:ready" --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`
+!`gh issue list --state open --label "night-shift" --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`
 
 </issues-json>
 
@@ -39,4 +39,4 @@ Output your plan as a JSON object wrapped in `<plan>` tags:
 
 If everything is blocked, include the single highest-priority candidate (the one with the fewest blockers and the highest `priority:p*` label).
 
-If there are no `sandcastle:ready` issues, output `<plan>{"issues":[]}</plan>` and stop.
+If there are no `night-shift` issues, output `<plan>{"issues":[]}</plan>` and stop.

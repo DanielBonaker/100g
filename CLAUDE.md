@@ -53,13 +53,19 @@ Every service exports a **small interface** with **deep behaviour**. Implementat
 2. For thorny design branches inside it, drop into Matt's `/grill-me` for relentless interview.
 3. `/to-prd` synthesises the conversation into a PRD under `docs/prds/`.
 4. `/to-issues` decomposes the PRD into vertical-slice GitHub issues. Each issue is independently grabbable.
-5. `/triage` walks the state machine; issues ready for autonomous build get the **`sandcastle:ready`** label.
+5. `/triage` walks the state machine; issues ready for autonomous build get the **`night-shift`** label.
 
-**Night shift (Sandcastle, AFK):**
+**Night shift (subagent-driven-development, subscription-billed):**
 
-- `pnpm factory:night` runs `@ai-hero/sandcastle` with the `parallel-planner` template.
-- It picks `sandcastle:ready` issues, spawns N Docker'd Claudes in isolated worktrees, branchStrategy `merge-to-head`.
-- A run merges to `main` only if CI is green.
+- `pnpm factory:night` prints the launch instruction (does NOT call Sandcastle by default — see ADR 0003).
+- Open a fresh Claude Code session in `C:\100g`. Paste the launch instruction.
+- The agent invokes `superpowers:subagent-driven-development` against issues labelled `night-shift`:
+  - One git worktree per issue (`superpowers:using-git-worktrees`).
+  - Per worktree: implementer subagent → spec-compliance reviewer → code-quality reviewer.
+  - On all green (typecheck + lint + test + build), merge no-ff to `main`, push, close the issue.
+- This uses your Claude Code subscription. Make sure the machine won't sleep.
+
+**Optional alternative — Sandcastle (paid):** if you ever set `ANTHROPIC_API_KEY` and want Docker-isolated parallel agents, run `npx tsx .sandcastle/main.mts` instead. Same `night-shift` label, same prompts — just a different orchestrator. Per-token billing applies.
 
 **Don't propose `CronCreate` for daily scheduling** — session-only, 7-day cap. Use `pnpm factory:night` manually before bed; OS-level scheduler later.
 
@@ -106,7 +112,7 @@ The shell enforces these at registration time — no game ships without 3 achiev
 | Services (deep modules)                       | `src/services/{persistence,economy,achievements,input,audio}/` |
 | Game shell                                    | `src/shell/`                                                   |
 | Games                                         | `src/games/NNN-<slug>/`                                        |
-| Sandcastle config                             | `.sandcastle/config.ts`, `.sandcastle/prompt.md`               |
+| Sandcastle (opt-in) config                    | `.sandcastle/main.mts`, `.sandcastle/*-prompt.md`              |
 | Factory scripts                               | `scripts/factory-morning.ts`, `scripts/factory-night.ts`       |
 
 ## Skill priority on this repo
@@ -115,8 +121,8 @@ The shell enforces these at registration time — no game ships without 3 achiev
 2. **`superpowers:brainstorming`** — entry point for new design work; falls into Matt's `/grill-me` for deep interviews.
 3. **`superpowers:test-driven-development`** — TDD canonical; Matt's `/tdd` is a synonym.
 4. **Matt's `/to-prd` → `/to-issues` → `/triage`** — the kanban pipeline. GH Issues are the kanban.
-5. **`superpowers:subagent-driven-development`** — for in-session parallel work.
-6. **Sandcastle (`pnpm factory:night`)** — for AFK execution against the `sandcastle:ready` backlog.
+5. **`superpowers:subagent-driven-development`** + **`superpowers:using-git-worktrees`** — the canonical night shift; subscription-billed.
+6. **Sandcastle (`npx tsx .sandcastle/main.mts`)** — opt-in only; requires `ANTHROPIC_API_KEY` (paid). See ADR 0003.
 7. **`/improve-codebase-architecture`** — weekly deep-module review.
 8. **`/diagnose`** + **`superpowers:systematic-debugging`** — when things break.
 
@@ -136,4 +142,5 @@ The shell enforces these at registration time — no game ships without 3 achiev
 - gh CLI authed as `DanielBonaker`, scopes `repo` + `workflow`.
 - `pnpm` 10.29.3, Node 24.11.1.
 - `superpowers@5.0.7` plugin installed.
-- **Pending user action:** install Docker Desktop, install `mattpocock/skills` via `npx skills@latest add mattpocock/skills`, set `ANTHROPIC_API_KEY` env var (separate from Claude Code subscription) — required by Sandcastle.
+- `mattpocock/skills` installed globally (12 skills). On a fresh session in this repo, run `/setup-matt-pocock-skills` once for any per-repo wiring it does.
+- **Subscription mode is the default** — the night shift uses `superpowers:subagent-driven-development`, billed against the Claude Code subscription. No Anthropic API key needed unless you opt into Sandcastle (ADR 0003).
