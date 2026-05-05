@@ -1,7 +1,10 @@
 import type { Input } from "../services/input/index.ts";
+import type { SaveOptions } from "../services/persistence/types.ts";
+
+export type { SaveOptions };
 
 export interface Persistence {
-  save(key: string, value: unknown): Promise<void>;
+  save(key: string, value: unknown, opts?: SaveOptions): Promise<void>;
   load<T>(key: string): Promise<T | null>;
   delete(key: string): Promise<void>;
 }

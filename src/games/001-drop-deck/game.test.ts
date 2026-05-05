@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { GameContext } from "../../engine/Game.ts";
+import type { GameContext, Persistence } from "../../engine/Game.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type {
   DragEvent as InputDragEvent,
@@ -7,6 +7,8 @@ import type {
 } from "../../services/input/types.ts";
 import { createDropDeckGame } from "./game.ts";
 import { BOARD_ROWS, BOARD_COLS } from "./domain/board.ts";
+import { IDBFactory } from "fake-indexeddb";
+import { createPersistence } from "../../services/persistence/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal GameContext with a controllable input service
@@ -47,7 +49,10 @@ const makeFakeInput = (): FakeInput => {
   };
 };
 
-const makeCtx = (input: FakeInput["inputService"]): GameContext => {
+const makeCtx = (
+  input: FakeInput["inputService"],
+  persistence?: Persistence,
+): GameContext => {
   const container = document.createElement("div");
   container.style.width = "375px";
   container.style.height = "667px";
@@ -55,8 +60,8 @@ const makeCtx = (input: FakeInput["inputService"]): GameContext => {
   return {
     container,
     services: {
-      persistence: {
-        save: () => Promise.resolve(),
+      persistence: persistence ?? {
+        save: (_key, _value, _opts?) => Promise.resolve(),
         load: () => Promise.resolve(null),
         delete: () => Promise.resolve(),
       },
@@ -198,6 +203,80 @@ describe("Game input — tap commits the block", () => {
       fake.fireTap({ x: 100, y: 300 });
       game.render();
     }).not.toThrow();
+
+    await game.teardown();
+  });
+});
+
+describe("Game persistence — cross-session restore", () => {
+  it("a cell placed in session A is visible in session B (simulated refresh)", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "drop-deck-test" });
+
+    // Session A: place one cell then flush persistence immediately via load
+    const fakeA = makeFakeInput();
+    const ctxA = makeCtx(fakeA.inputService, persistence);
+    const gameA = createDropDeckGame();
+    await gameA.init(ctxA);
+
+    // Tap to place a cell at center column (col 4 by default)
+    fakeA.fireTap({ x: 100, y: 300 });
+
+    // The save is debounced 50 ms. Load the same key to flush the pending write.
+    await persistence.load("drop-deck-run");
+
+    const stateAfterA = gameA.__getRunState();
+    expect(stateAfterA.committedCells).toBe(1);
+    await gameA.teardown();
+
+    // Session B: create a NEW game instance backed by the same persistence
+    const fakeB = makeFakeInput();
+    const ctxB = makeCtx(fakeB.inputService, persistence);
+    const gameB = createDropDeckGame();
+    await gameB.init(ctxB);
+
+    const stateAfterB = gameB.__getRunState();
+    // The bottom row of center column (col 4) must still be occupied
+    expect(stateAfterB.committedCells).toBe(1);
+    expect(stateAfterB.board[BOARD_ROWS - 1]![4]).not.toBeNull();
+
+    await gameB.teardown();
+  });
+});
+
+describe("Game persistence — malformed saved state falls back to fresh state", () => {
+  it("persisted garbage is ignored: game starts fresh and the bad entry is cleared", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "drop-deck-malformed",
+    });
+
+    // Write a deliberately malformed object directly via persistence.save
+    // (bypasses the game's own save path; board is a string, not an array)
+    await persistence.save("drop-deck-run", {
+      board: "not-an-array",
+      activeColumn: true,
+      status: 99,
+    });
+
+    // Mount a fresh game — it must silently fall back to makeRunState()
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const state = game.__getRunState();
+    // A fresh state always has committedCells = 0 and status = "running"
+    expect(state.committedCells).toBe(0);
+    expect(state.status).toBe("running");
+    // Board must be a proper array (not the garbage string)
+    expect(Array.isArray(state.board)).toBe(true);
+    expect(state.board.length).toBe(BOARD_ROWS);
+
+    // The malformed entry must have been deleted — next load returns null
+    const stored = await persistence.load("drop-deck-run");
+    expect(stored).toBeNull();
 
     await game.teardown();
   });

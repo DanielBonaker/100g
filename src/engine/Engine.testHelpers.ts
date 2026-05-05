@@ -7,7 +7,7 @@ import type { EngineOptions, RendererAdapter } from "./Engine.ts";
 
 export const stubServices = (): ServiceRegistry => ({
   persistence: {
-    save: () => Promise.resolve(),
+    save: (_key, _value, _opts?) => Promise.resolve(),
     load: () => Promise.resolve(null),
     delete: () => Promise.resolve(),
   },

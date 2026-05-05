@@ -1,8 +1,67 @@
-import type { Game, GameContext } from "../../engine/Game.ts";
+import type { Game, GameContext, Persistence } from "../../engine/Game.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type { DragEvent as InputDragEvent } from "../../services/input/types.ts";
 import { makeRunState, place, BOARD_COLS, BOARD_ROWS } from "./domain/board.ts";
 import type { RunState } from "./domain/board.ts";
+
+// ---------------------------------------------------------------------------
+// Saved-state shape validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime type guard for RunState.
+ * Returns true only when `value` is structurally identical to a valid RunState.
+ * Any mismatch (wrong types, wrong board dimensions, out-of-range column, etc.)
+ * causes the caller to fall back to makeRunState() rather than crashing the
+ * render loop with unexpected data.
+ */
+interface MaybeRunState {
+  board: unknown;
+  activeColumn: unknown;
+  status: unknown;
+  committedCells: unknown;
+  nextCellId: unknown;
+}
+
+const isRunState = (value: unknown): value is RunState => {
+  if (value === null || typeof value !== "object") return false;
+  const v = value as MaybeRunState;
+
+  // board: array of BOARD_ROWS rows, each row an array of BOARD_COLS cells
+  if (!Array.isArray(v.board)) return false;
+  const board = v.board as unknown[];
+  if (board.length !== BOARD_ROWS) return false;
+  for (const row of board) {
+    if (!Array.isArray(row)) return false;
+    const cells = row as unknown[];
+    if (cells.length !== BOARD_COLS) return false;
+    for (const cell of cells) {
+      // Each cell must be null or a plain object with a numeric id
+      if (cell !== null) {
+        if (typeof cell !== "object") return false;
+        const c = cell as { id?: unknown };
+        if (typeof c.id !== "number") return false;
+      }
+    }
+  }
+
+  // activeColumn: number within [0, BOARD_COLS)
+  if (typeof v.activeColumn !== "number") return false;
+  if (v.activeColumn < 0 || v.activeColumn >= BOARD_COLS) return false;
+
+  // status: one of the two valid string literals
+  if (v.status !== "running" && v.status !== "ended") return false;
+
+  // committedCells: non-negative number
+  if (typeof v.committedCells !== "number") return false;
+  if (v.committedCells < 0) return false;
+
+  // nextCellId: number >= 1
+  if (typeof v.nextCellId !== "number") return false;
+  if (v.nextCellId < 1) return false;
+
+  return true;
+};
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -106,6 +165,7 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   let pixiApp: PixiApp | null = null;
   let boardGfx: PixiGraphics | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
+  let persistence: Persistence | null = null;
   const disposers: Disposer[] = [];
 
   // Track drag state for column snapping
@@ -114,7 +174,21 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
 
   const init = async (ctx: GameContext): Promise<void> => {
     container = ctx.container;
-    runState = makeRunState();
+    persistence = ctx.services.persistence;
+
+    // Attempt to restore a prior run from persistence.
+    // We cast the loaded value through `unknown` first to allow a runtime shape
+    // check — the persisted data may have been written by an older version.
+    const saved = await persistence.load<unknown>("drop-deck-run");
+    if (isRunState(saved)) {
+      runState = saved;
+    } else {
+      runState = makeRunState();
+      if (saved !== null) {
+        // Saved object exists but has wrong shape — clear it.
+        void persistence.delete("drop-deck-run");
+      }
+    }
 
     // Canvas is created eagerly; the Pixi-or-fallback decision happens after attach.
     canvas = document.createElement("canvas");
@@ -147,8 +221,14 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     // Wire input handlers
     const tapDisposer = ctx.services.input.onTap(() => {
       if (runState.status === "ended") return;
+      const prevCommitted = runState.committedCells;
       const result = place(runState, runState.activeColumn);
       runState = result.state;
+      // Commit-save: debounced 50 ms. Only fires when a new cell was placed
+      // (not a top-out or out-of-bounds no-op).
+      if (runState.committedCells > prevCommitted && persistence !== null) {
+        void persistence.save("drop-deck-run", runState, { debounceMs: 50 });
+      }
       // toppedOut is reflected in runState.status — no separate event needed
     });
 
