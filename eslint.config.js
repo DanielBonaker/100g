@@ -11,6 +11,7 @@ export default tseslint.config(
       "eslint.config.js",
       "*.config.js",
       ".sandcastle/**",
+      ".claude/**",
     ],
   },
   ...tseslint.configs.strictTypeChecked,
