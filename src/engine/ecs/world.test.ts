@@ -109,6 +109,70 @@ describe("createWorld — attach + query", () => {
     const results = [...world.query<readonly []>()];
     expect(results).toHaveLength(0);
   });
+
+  it("re-attaching a component with the same tag replaces the prior one (last write wins)", () => {
+    const world = createWorld();
+    const id = world.spawn();
+    world.attach(id, position({ x: 1, y: 2 }));
+    world.attach(id, position({ x: 9, y: 9 }));
+    const results = [
+      ...world.query<readonly [Component<Position>]>(positionTag),
+    ];
+    expect(results).toHaveLength(1);
+    expect(results[0]![1].data).toEqual({ x: 9, y: 9 });
+  });
+
+  it("excludes entities missing any tag in a 3-tag query", () => {
+    const world = createWorld();
+    const a = world.spawn();
+    world.attach(a, position({ x: 1, y: 1 }));
+    world.attach(a, velocity({ vx: 1, vy: 1 }));
+    world.attach(a, health({ hp: 10 }));
+
+    const b = world.spawn();
+    world.attach(b, position({ x: 2, y: 2 }));
+    world.attach(b, velocity({ vx: 2, vy: 2 }));
+
+    const results = [
+      ...world.query<
+        readonly [Component<Position>, Component<Velocity>, Component<Health>]
+      >(positionTag, velocityTag, healthTag),
+    ];
+    expect(results).toHaveLength(1);
+    expect(results[0]![0]).toBe(a);
+  });
+});
+
+describe("createWorld — edge cases", () => {
+  it("attach to an id that was never spawned silently no-ops", () => {
+    const world = createWorld();
+    world.attach(99999, position({ x: 0, y: 0 }));
+    const results = [
+      ...world.query<readonly [Component<Position>]>(positionTag),
+    ];
+    expect(results).toHaveLength(0);
+  });
+
+  it("remove of an already-removed id is a no-op", () => {
+    const world = createWorld();
+    const id = world.spawn();
+    world.remove(id);
+    expect(() => {
+      world.remove(id);
+    }).not.toThrow();
+    const results = [
+      ...world.query<readonly [Component<Position>]>(positionTag),
+    ];
+    expect(results).toHaveLength(0);
+  });
+
+  it("remove of a never-spawned id is a no-op and does not affect id allocation", () => {
+    const world = createWorld();
+    expect(() => {
+      world.remove(99999);
+    }).not.toThrow();
+    expect(world.spawn()).toBe(1);
+  });
 });
 
 describe("createWorld — remove", () => {
