@@ -84,9 +84,15 @@ describe("isRunState", () => {
   it("returns false for an old-shape state missing new fields", () => {
     // Simulates a RunState from before this slice (missing rngState etc.)
     const oldShape = {
-      board: Array.from({ length: BOARD_ROWS }, () =>
-        Array.from<null>({ length: BOARD_COLS }, () => null),
-      ),
+      board: ((): null[][] => {
+        const b: null[][] = [];
+        for (let r = 0; r < BOARD_ROWS; r++) {
+          const row: null[] = [];
+          for (let c = 0; c < BOARD_COLS; c++) row.push(null);
+          b.push(row);
+        }
+        return b;
+      })(),
       activeColumn: 4,
       status: "running",
       committedCells: 0,

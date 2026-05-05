@@ -7,28 +7,80 @@ export interface DeckOptions {
   readonly maxSize?: number;
 }
 
+const STARTER_DECK_SIZE = 8;
+
+/** Build the initial starter deck of standard 1×1 blocks. */
 export const buildStarterDeck = (_rng: SeededRng): readonly Block[] => {
-  throw new Error("not implemented");
+  const deck: Block[] = [];
+  for (let i = 0; i < STARTER_DECK_SIZE; i++) {
+    deck.push({
+      id: `std-1x1-${String(i + 1)}`,
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard",
+    });
+  }
+  return deck;
 };
 
+/** Fisher-Yates shuffle — pure (returns new array), deterministic per seed. */
 export const shuffle = <T>(
-  _items: readonly T[],
-  _rng: SeededRng,
+  items: readonly T[],
+  rng: SeededRng,
 ): readonly T[] => {
-  throw new Error("not implemented");
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rng.int(0, i);
+    const tmp = arr[i];
+    arr[i] = arr[j] as T;
+    arr[j] = tmp as T;
+  }
+  return arr;
 };
 
+/**
+ * Draw the next block from drawQueue. If drawQueue is empty, reshuffle the
+ * deck into a new drawQueue first. Returns null only when both are empty.
+ */
 export const draw = (
-  _state: RunState,
-  _rng: SeededRng,
+  state: RunState,
+  rng: SeededRng,
 ): { state: RunState; drew: Block | null } => {
-  throw new Error("not implemented");
+  let { drawQueue, deck } = state;
+
+  // If queue is empty, reshuffle deck into a new queue
+  if (drawQueue.length === 0) {
+    if (deck.length === 0) {
+      return { state, drew: null };
+    }
+    drawQueue = shuffle(deck, rng);
+    deck = [];
+  }
+
+  const drew = drawQueue[0] ?? null;
+  if (drew === null) return { state, drew: null };
+
+  return {
+    state: {
+      ...state,
+      drawQueue: drawQueue.slice(1),
+      deck,
+    },
+    drew,
+  };
 };
 
+/**
+ * Enforce min/max deck size.
+ * - If deck length > maxSize: truncate from the end.
+ * - Below minSize: deck is too small but we don't pad here
+ *   (caller adds blocks via booster packs in later slices).
+ */
 export const enforceMinMax = (
-  _deck: readonly Block[],
+  deck: readonly Block[],
   _min: number,
-  _max: number,
+  max: number,
 ): readonly Block[] => {
-  throw new Error("not implemented");
+  if (deck.length > max) return deck.slice(0, max);
+  return deck;
 };

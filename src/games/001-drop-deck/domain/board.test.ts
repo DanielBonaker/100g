@@ -29,10 +29,17 @@ const stubRng: SeededRng = {
 // ---------------------------------------------------------------------------
 
 /** Build a board with all cells null */
-const emptyBoardArr = (): Cell[][] =>
-  Array.from({ length: BOARD_ROWS }, () =>
-    Array.from<Cell>({ length: BOARD_COLS }, () => null),
-  );
+const emptyBoardArr = (): Cell[][] => {
+  const board: Cell[][] = [];
+  for (let r = 0; r < BOARD_ROWS; r++) {
+    const row: Cell[] = [];
+    for (let c = 0; c < BOARD_COLS; c++) {
+      row.push(null);
+    }
+    board.push(row);
+  }
+  return board;
+};
 
 /** Fill an entire row (all BOARD_COLS cells) with id=1 cells */
 const fillRow = (board: Cell[][], row: number): void => {
@@ -213,10 +220,21 @@ describe("placeBlockAtCells", () => {
     expect(result.nextCellId).toBe(3);
   });
 
-  it("detects top-out when any landing cell is at row 0", () => {
-    const board = emptyBoardArr() as unknown as Board;
+  it("detects top-out when landing cell would overwrite an already-occupied row 0 cell", () => {
+    // Row 0 col 4 already has a cell — placing there again is a top-out
+    const boardArr = emptyBoardArr();
+    boardArr[0]![4] = { id: 99 };
+    const board = boardArr as unknown as Board;
     const result = placeBlockAtCells(board, [{ row: 0, col: 4 }], 1);
     expect(result.toppedOut).toBe(true);
+  });
+
+  it("does NOT flag top-out when placing at row 0 if that cell is empty", () => {
+    // Placing a block at row 0 on an empty board is valid (just stacked to top)
+    const board = emptyBoardArr() as unknown as Board;
+    const result = placeBlockAtCells(board, [{ row: 0, col: 4 }], 1);
+    expect(result.toppedOut).toBe(false);
+    expect(result.board[0]![4]).not.toBeNull();
   });
 });
 
@@ -389,19 +407,13 @@ describe("commitActive", () => {
     expect(result.reason).toBe("spawn-collision");
   });
 
-  it("garbage-shift top-out — detects when cell above row 0 would be placed", () => {
-    // Simulate garbage-shift by providing a block with a cell offset that would
-    // land above row 0. In the standard strategy, this is detected as garbage-shift.
-    const base = makeRunState("seed-garbage");
-    // A block placed at column 4 with a cell offset dy=-1 from row 0 → row -1
-    // We simulate this by having a full board and a block that can't fit.
-    // The garbage-shift path is tested by directly invoking with a board already at row 0
-    // and calling commitActive: if spawn-collision is detected, endedReason matches.
-
-    // More direct: we set up a board where row 0 is occupied at the active column.
-    // The standard strategy should detect this as spawn-collision.
+  it("spawn-collision via full column — top-out produces consistent state shape", () => {
+    // Fill all 16 rows of column 4 so no row is available for the active block.
+    // The standard strategy should return spawn-collision because no row fits.
     const boardArr = emptyBoardArr();
-    boardArr[0]![4] = { id: 99 }; // row 0 occupied
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      boardArr[r]![4] = { id: r + 1 };
+    }
     const board = boardArr as unknown as Board;
 
     const active = {
@@ -410,6 +422,7 @@ describe("commitActive", () => {
       cells: [{ dx: 0, dy: 0 }],
       effectId: "standard" as const,
     };
+    const base = makeRunState("seed-garbage");
     const state = { ...base, board, active, activeColumn: 4 };
     const result = commitActive(state, stubRng);
 

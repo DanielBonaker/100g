@@ -91,9 +91,9 @@ describe("draw", () => {
   it("draws from drawQueue when non-empty", () => {
     const baseState = makeRunState("seed-42");
     const rng = makeTestRng(1);
-    // Put known blocks in drawQueue directly
-    const blockA = baseState.deck[0];
-    if (!blockA) throw new Error("no block in deck");
+    // Use the first block from drawQueue (all initial blocks start there)
+    const blockA = baseState.drawQueue[0];
+    if (!blockA) throw new Error("no block in drawQueue");
     const state = { ...baseState, drawQueue: [blockA] };
     const result = draw(state, rng);
     expect(result.drew).toBe(blockA);
@@ -103,7 +103,8 @@ describe("draw", () => {
   it("reshuffles deck into drawQueue when drawQueue is empty", () => {
     const rng = makeTestRng(1);
     const baseState = makeRunState("seed-1");
-    const state = { ...baseState, drawQueue: [] };
+    // Move drawQueue blocks to deck so draw() must reshuffle
+    const state = { ...baseState, drawQueue: [], deck: baseState.drawQueue };
     const result = draw(state, rng);
     expect(result.drew).not.toBeNull();
   });

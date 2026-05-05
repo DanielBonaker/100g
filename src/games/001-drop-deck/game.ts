@@ -1,67 +1,15 @@
 import type { Game, GameContext, Persistence } from "../../engine/Game.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type { DragEvent as InputDragEvent } from "../../services/input/types.ts";
-import { makeRunState, place, BOARD_COLS, BOARD_ROWS } from "./domain/board.ts";
+import {
+  makeRunState,
+  BOARD_COLS,
+  BOARD_ROWS,
+  commitActive,
+} from "./domain/board.ts";
 import type { RunState } from "./domain/board.ts";
-
-// ---------------------------------------------------------------------------
-// Saved-state shape validation
-// ---------------------------------------------------------------------------
-
-/**
- * Runtime type guard for RunState.
- * Returns true only when `value` is structurally identical to a valid RunState.
- * Any mismatch (wrong types, wrong board dimensions, out-of-range column, etc.)
- * causes the caller to fall back to makeRunState() rather than crashing the
- * render loop with unexpected data.
- */
-interface MaybeRunState {
-  board: unknown;
-  activeColumn: unknown;
-  status: unknown;
-  committedCells: unknown;
-  nextCellId: unknown;
-}
-
-const isRunState = (value: unknown): value is RunState => {
-  if (value === null || typeof value !== "object") return false;
-  const v = value as MaybeRunState;
-
-  // board: array of BOARD_ROWS rows, each row an array of BOARD_COLS cells
-  if (!Array.isArray(v.board)) return false;
-  const board = v.board as unknown[];
-  if (board.length !== BOARD_ROWS) return false;
-  for (const row of board) {
-    if (!Array.isArray(row)) return false;
-    const cells = row as unknown[];
-    if (cells.length !== BOARD_COLS) return false;
-    for (const cell of cells) {
-      // Each cell must be null or a plain object with a numeric id
-      if (cell !== null) {
-        if (typeof cell !== "object") return false;
-        const c = cell as { id?: unknown };
-        if (typeof c.id !== "number") return false;
-      }
-    }
-  }
-
-  // activeColumn: number within [0, BOARD_COLS)
-  if (typeof v.activeColumn !== "number") return false;
-  if (v.activeColumn < 0 || v.activeColumn >= BOARD_COLS) return false;
-
-  // status: one of the two valid string literals
-  if (v.status !== "running" && v.status !== "ended") return false;
-
-  // committedCells: non-negative number
-  if (typeof v.committedCells !== "number") return false;
-  if (v.committedCells < 0) return false;
-
-  // nextCellId: number >= 1
-  if (typeof v.nextCellId !== "number") return false;
-  if (v.nextCellId < 1) return false;
-
-  return true;
-};
+import { isRunState } from "./domain/runState.ts";
+import { makeRng } from "./domain/rng.ts";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -135,16 +83,18 @@ const drawBoard = (
       }
     }
 
-    // Active block preview (only while running)
-    if (state.status === "running") {
-      gfx
-        .rect(
-          state.activeColumn * CELL_SIZE + 2,
-          2,
-          CELL_SIZE - 4,
-          CELL_SIZE - 4,
-        )
-        .fill(0xffdd44);
+    // Active block preview — render all cells of the active block
+    if (state.status === "running" && state.active !== null) {
+      for (const { dx, dy } of state.active.cells) {
+        gfx
+          .rect(
+            (state.activeColumn + dx) * CELL_SIZE + 2,
+            dy * CELL_SIZE + 2,
+            CELL_SIZE - 4,
+            CELL_SIZE - 4,
+          )
+          .fill(0xffdd44);
+      }
     }
   } else if (ctx2d !== null) {
     // Minimal 2D canvas fallback for test environments
@@ -177,13 +127,13 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     persistence = ctx.services.persistence;
 
     // Attempt to restore a prior run from persistence.
-    // We cast the loaded value through `unknown` first to allow a runtime shape
-    // check — the persisted data may have been written by an older version.
+    // The isRunState guard rejects old-format saves (missing new fields from
+    // this slice). Those saves are deleted and the run resets to a fresh state.
     const saved = await persistence.load<unknown>("drop-deck-run");
     if (isRunState(saved)) {
       runState = saved;
     } else {
-      runState = makeRunState();
+      runState = makeRunState(ctx.rng.state);
       if (saved !== null) {
         // Saved object exists but has wrong shape — clear it.
         void persistence.delete("drop-deck-run");
@@ -218,11 +168,13 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       ctx2d = canvas.getContext("2d");
     }
 
+    const rng = makeRng(runState.rngState);
+
     // Wire input handlers
     const tapDisposer = ctx.services.input.onTap(() => {
       if (runState.status === "ended") return;
       const prevCommitted = runState.committedCells;
-      const result = place(runState, runState.activeColumn);
+      const result = commitActive(runState, rng);
       runState = result.state;
       // Commit-save: debounced 50 ms. Only fires when a new cell was placed
       // (not a top-out or out-of-bounds no-op).

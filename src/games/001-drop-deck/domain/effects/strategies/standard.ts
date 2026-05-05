@@ -1,8 +1,91 @@
 import type { EffectStrategy, PlaceContext, PlaceResult } from "../types.ts";
+import {
+  BOARD_COLS,
+  BOARD_ROWS,
+  CENTER_COL,
+  placeBlockAtCells,
+  clearFullRows,
+} from "../../board.ts";
 
 export const standardStrategy: EffectStrategy = {
   id: "standard",
-  resolve(_ctx: PlaceContext): PlaceResult {
-    throw new Error("not implemented");
+  resolve(ctx: PlaceContext): PlaceResult {
+    const { state, block, column } = ctx;
+
+    // No-op after top-out
+    if (state.status === "ended") {
+      return { state, toppedOut: false, reason: null };
+    }
+
+    // Determine the lowest row R such that all (R + dy, column + dx) are empty.
+    // Search from bottom up.
+    let targetRow = -1;
+
+    for (let r = BOARD_ROWS - 1; r >= 0; r--) {
+      let fits = true;
+      for (const { dx, dy } of block.cells) {
+        const cellRow = r + dy;
+        const cellCol = column + dx;
+        if (
+          cellRow < 0 ||
+          cellRow >= BOARD_ROWS ||
+          cellCol < 0 ||
+          cellCol >= BOARD_COLS
+        ) {
+          fits = false;
+          break;
+        }
+        if (state.board[cellRow]?.[cellCol] !== null) {
+          fits = false;
+          break;
+        }
+      }
+      if (fits) {
+        targetRow = r;
+        break;
+      }
+    }
+
+    // No valid row found → top-out (spawn-collision)
+    if (targetRow === -1) {
+      return {
+        state: { ...state, status: "ended", endedReason: "spawn-collision" },
+        toppedOut: true,
+        reason: "spawn-collision",
+      };
+    }
+
+    // Build the final cell positions
+    const finalCells = block.cells.map(({ dx, dy }) => ({
+      row: targetRow + dy,
+      col: column + dx,
+    }));
+
+    // Place the cells on the board
+    const placed = placeBlockAtCells(state.board, finalCells, state.nextCellId);
+
+    if (placed.toppedOut) {
+      return {
+        state: { ...state, status: "ended", endedReason: "spawn-collision" },
+        toppedOut: true,
+        reason: "spawn-collision",
+      };
+    }
+
+    // Clear completed rows
+    const cleared = clearFullRows(placed.board);
+
+    const nextState = {
+      ...state,
+      board: cleared.board,
+      activeColumn: CENTER_COL,
+      status: "running" as const,
+      committedCells: state.committedCells + 1,
+      nextCellId: placed.nextCellId,
+      clearedRowsThisRun: state.clearedRowsThisRun + cleared.clearedCount,
+      clearedRowsThisRound: state.clearedRowsThisRound + cleared.clearedCount,
+    };
+
+    return { state: nextState, toppedOut: false, reason: null };
   },
 };

@@ -1,5 +1,5 @@
 import type { GameManifest } from "../../engine/Game.ts";
-import type { RunState } from "./domain/board.ts";
+import type { RunState } from "./domain/runState.ts";
 
 export const manifest: GameManifest<RunState> = {
   id: "001-drop-deck",

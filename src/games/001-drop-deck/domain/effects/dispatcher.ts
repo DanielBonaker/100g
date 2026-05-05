@@ -18,8 +18,9 @@ const REGISTRY: Record<EffectId, EffectStrategy> = {
   rain: rainStrategy,
 };
 
-export const resolveEffect = (_ctx: PlaceContext): PlaceResult => {
-  throw new Error("not implemented");
+export const resolveEffect = (ctx: PlaceContext): PlaceResult => {
+  const strategy = REGISTRY[ctx.block.effectId];
+  return strategy.resolve(ctx);
 };
 
 export { REGISTRY };
