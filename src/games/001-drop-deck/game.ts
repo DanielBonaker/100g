@@ -21,7 +21,8 @@ const DRAG_COL_THRESHOLD = CELL_SIZE;
 
 interface PixiApp {
   canvas: HTMLCanvasElement;
-  stage: { addChild: (g: unknown) => void; removeChild: (g: unknown) => void };
+  init(opts: unknown): Promise<void>;
+  stage: { addChild(child: unknown): void; removeChild(child: unknown): void };
   destroy: (options?: unknown) => void;
 }
 
@@ -98,7 +99,7 @@ const drawBoard = (
 // Game factory
 // ---------------------------------------------------------------------------
 
-export const createDropDeckGame = (): Game => {
+export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   let runState: RunState = makeRunState();
   let canvas: HTMLCanvasElement | null = null;
   let container: HTMLElement | null = null;
@@ -115,7 +116,7 @@ export const createDropDeckGame = (): Game => {
     container = ctx.container;
     runState = makeRunState();
 
-    // Always create a canvas so tests can assert its presence
+    // Canvas is created eagerly; the Pixi-or-fallback decision happens after attach.
     canvas = document.createElement("canvas");
     canvas.width = BOARD_PIXEL_W;
     canvas.height = BOARD_PIXEL_H;
@@ -124,25 +125,20 @@ export const createDropDeckGame = (): Game => {
     // Attempt PixiJS init — may fail in test environments (happy-dom)
     try {
       const { Application, Graphics } = await import("pixi.js");
+      // Single bridge cast: Application is untyped JS; PixiApp is our typed contract.
       const app = new Application() as unknown as PixiApp;
-      await (app as unknown as { init: (opts: unknown) => Promise<void> }).init(
-        {
-          canvas,
-          width: BOARD_PIXEL_W,
-          height: BOARD_PIXEL_H,
-          antialias: false,
-          background: 0x1a1a2e,
-        },
-      );
+      await app.init({
+        canvas,
+        width: BOARD_PIXEL_W,
+        height: BOARD_PIXEL_H,
+        antialias: false,
+        background: 0x1a1a2e,
+      });
       pixiApp = app;
 
       const gfx = new Graphics() as unknown as PixiGraphics;
       boardGfx = gfx;
-      (
-        app as unknown as {
-          stage: { addChild: (g: unknown) => void };
-        }
-      ).stage.addChild(gfx);
+      app.stage.addChild(gfx);
     } catch {
       // Fall back to 2D canvas drawing in environments without WebGL/Canvas2D
       ctx2d = canvas.getContext("2d");
@@ -175,9 +171,8 @@ export const createDropDeckGame = (): Game => {
     disposers.push(tapDisposer, dragDisposer);
   };
 
-  const update = (_dtMs: number): void => {
-    // Event-driven game — no simulation state changes per tick
-  };
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  const update = (_dtMs: number): void => {};
 
   const render = (): void => {
     drawBoard(boardGfx, ctx2d, runState);
@@ -205,5 +200,9 @@ export const createDropDeckGame = (): Game => {
     container = null;
   };
 
-  return { init, update, render, teardown };
+  // Test-only seam — not part of the Game interface. Tests cast the return value
+  // to access this; production code never calls it.
+  const __getRunState = (): RunState => runState;
+
+  return { init, update, render, teardown, __getRunState };
 };

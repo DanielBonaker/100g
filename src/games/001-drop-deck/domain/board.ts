@@ -11,6 +11,7 @@ export interface RunState {
   readonly activeColumn: number;
   readonly status: "running" | "ended";
   readonly committedCells: number;
+  readonly nextCellId: number;
 }
 
 export interface DropResult {
@@ -35,13 +36,17 @@ export const makeRunState = (): RunState => ({
   activeColumn: CENTER_COL,
   status: "running",
   committedCells: 0,
+  nextCellId: 1,
 });
-
-let nextCellId = 1;
 
 export const place = (state: RunState, column: number): DropResult => {
   // No-op after top-out
   if (state.status === "ended") {
+    return { state, toppedOut: false };
+  }
+
+  // Guard: out-of-range column — treat as no-op (not a top-out)
+  if (column < 0 || column >= BOARD_COLS) {
     return { state, toppedOut: false };
   }
 
@@ -73,10 +78,11 @@ export const place = (state: RunState, column: number): DropResult => {
   }
 
   // Place the cell
+  const cellId = state.nextCellId;
   const newBoard = state.board.map((row, r) =>
     r === targetRow
       ? row.map((cell, c) =>
-          c === column ? ({ id: nextCellId++ } satisfies Cell) : cell,
+          c === column ? ({ id: cellId } satisfies Cell) : cell,
         )
       : row,
   ) as Board;
@@ -87,6 +93,7 @@ export const place = (state: RunState, column: number): DropResult => {
       activeColumn: CENTER_COL,
       status: "running",
       committedCells: state.committedCells + 1,
+      nextCellId: cellId + 1,
     },
     toppedOut: false,
   };

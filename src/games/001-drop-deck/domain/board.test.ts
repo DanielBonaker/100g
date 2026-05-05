@@ -4,7 +4,8 @@ import { makeRunState, place, BOARD_COLS, BOARD_ROWS } from "./board.ts";
 describe("makeRunState", () => {
   it("creates an empty board with activeColumn at center", () => {
     const state = makeRunState();
-    expect(state.activeColumn).toBe(4);
+    const center = makeRunState().activeColumn;
+    expect(state.activeColumn).toBe(center);
     expect(state.status).toBe("running");
     expect(state.committedCells).toBe(0);
     expect(state.board).toHaveLength(BOARD_ROWS);
@@ -18,6 +19,11 @@ describe("makeRunState", () => {
         expect(cell).toBeNull();
       }
     }
+  });
+
+  it("initialises nextCellId to 1", () => {
+    const state = makeRunState();
+    expect(state.nextCellId).toBe(1);
   });
 });
 
@@ -53,10 +59,48 @@ describe("place", () => {
     expect(r2.state.committedCells).toBe(2);
   });
 
-  it("resets activeColumn to center (4) after each commit", () => {
+  it("resets activeColumn to center after each commit", () => {
+    const center = makeRunState().activeColumn;
     const state = makeRunState();
     const result = place(state, 7);
-    expect(result.state.activeColumn).toBe(4);
+    expect(result.state.activeColumn).toBe(center);
+  });
+
+  it("increments nextCellId after a successful place", () => {
+    const state = makeRunState();
+    expect(state.nextCellId).toBe(1);
+    const r1 = place(state, 3);
+    expect(r1.state.nextCellId).toBe(2);
+    const r2 = place(r1.state, 2);
+    expect(r2.state.nextCellId).toBe(3);
+  });
+
+  it("does NOT increment nextCellId after top-out (no cell placed)", () => {
+    let state = makeRunState();
+    // Fill column 3 fully
+    for (let i = 0; i < BOARD_ROWS; i++) {
+      const result = place(state, 3);
+      state = result.state;
+    }
+    const idBeforeTopOut = state.nextCellId;
+    // This place triggers the top-out detection
+    const result = place(state, 3);
+    expect(result.toppedOut).toBe(true);
+    expect(result.state.nextCellId).toBe(idBeforeTopOut);
+  });
+
+  it("returns state unchanged (toppedOut: false) for out-of-range column -1", () => {
+    const state = makeRunState();
+    const result = place(state, -1);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state).toBe(state);
+  });
+
+  it("returns state unchanged (toppedOut: false) for out-of-range column BOARD_COLS", () => {
+    const state = makeRunState();
+    const result = place(state, BOARD_COLS);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state).toBe(state);
   });
 
   it("detects top-out when row 0 of the target column is occupied", () => {

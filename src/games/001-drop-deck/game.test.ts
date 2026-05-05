@@ -6,6 +6,7 @@ import type {
   TapEvent,
 } from "../../services/input/types.ts";
 import { createDropDeckGame } from "./game.ts";
+import { BOARD_ROWS, BOARD_COLS } from "./domain/board.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal GameContext with a controllable input service
@@ -131,18 +132,34 @@ describe("Game lifecycle", () => {
 });
 
 describe("Game input — drag updates activeColumn", () => {
-  it("a drag-move with positive dx shifts activeColumn right", async () => {
+  it("drag right by one threshold then tap lands block one column right of center", async () => {
     const fake = makeFakeInput();
     const ctx = makeCtx(fake.inputService);
     const game = createDropDeckGame();
     await game.init(ctx);
 
-    // Emit a drag-move far enough right to shift one column
-    fake.fireDrag({ startX: 0, startY: 100, dx: 60, dy: 0, phase: "move" });
-    // No assertion on internal state — just verify no throw and render is callable
-    expect(() => {
-      game.render();
-    }).not.toThrow();
+    // DRAG_COL_THRESHOLD is 40 px (one cell width). Starting column is center.
+    const startState = game.__getRunState();
+    const startCol = startState.activeColumn;
+
+    // Start drag, then move right by exactly one cell threshold → shift +1 column.
+    fake.fireDrag({ startX: 0, startY: 100, dx: 0, dy: 0, phase: "start" });
+    fake.fireDrag({ startX: 0, startY: 100, dx: 40, dy: 0, phase: "move" });
+
+    const afterDrag = game.__getRunState();
+    const expectedCol = Math.min(BOARD_COLS - 1, startCol + 1);
+    expect(afterDrag.activeColumn).toBe(expectedCol);
+
+    // Tap commits the block at the dragged column.
+    fake.fireTap({ x: 100, y: 300 });
+
+    const afterTap = game.__getRunState();
+    // Bottom row of the expected column must now be occupied.
+    expect(afterTap.board[BOARD_ROWS - 1]![expectedCol]).not.toBeNull();
+    // Adjacent columns at the bottom row must still be empty.
+    if (expectedCol > 0) {
+      expect(afterTap.board[BOARD_ROWS - 1]![expectedCol - 1]).toBeNull();
+    }
 
     await game.teardown();
   });

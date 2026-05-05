@@ -17,7 +17,7 @@ export const manifest: GameManifest<RunState> = {
     },
     {
       id: "dd-survive-100",
-      title: "Centurian Stack",
+      title: "Centurion Stack",
       criterion: "Commit 100 blocks without topping out",
     },
   ],
