@@ -65,8 +65,18 @@ console.log(
     "```\n" +
     "Execute the night-shift backlog using superpowers:subagent-driven-development.\n" +
     "\n" +
-    "- Read `gh issue list --state open --label night-shift` for the queue.\n" +
-    "- For each issue, in priority order:\n" +
+    "- Read `gh issue list --state open --label night-shift --json number,title` for the queue.\n" +
+    "- Build a dependency graph: for each issue, fetch its body via\n" +
+    "  `gh issue view <n> --json body` and find blocker references. Two formats exist:\n" +
+    "    1. Structured: `## Blocked by` section followed by `- #<n>` bullets.\n" +
+    "    2. Loose: a `Blocked by:` sentence listing either `#<n>` numbers or\n" +
+    "       descriptive titles (e.g. `engine/Engine`, `services/economy`,\n" +
+    "       `services/achievements`, `shell/Router`). Resolve descriptive titles\n" +
+    "       by scanning the open + closed issue list for matching titles.\n" +
+    "  Treat a blocker as satisfied if the referenced issue is CLOSED.\n" +
+    "- Process in priority order (p1 → p2 → p3). Within each priority tier, prefer\n" +
+    "  issues whose blockers are all satisfied. Skip issues with any open blocker.\n" +
+    "- For each runnable issue:\n" +
     "  - Create an isolated git worktree via superpowers:using-git-worktrees.\n" +
     "  - Dispatch a fresh implementer subagent (TDD: red → green → refactor).\n" +
     "  - Dispatch a spec-compliance reviewer subagent; fix gaps if any.\n" +
@@ -76,6 +86,10 @@ console.log(
     "    push to `origin/main`, and `gh issue close <number>` with a brief summary.\n" +
     "  - If anything fails twice, leave a comment on the issue with the failure\n" +
     "    and move on.\n" +
-    "- Stop when the queue is empty or you hit your subscription rate limit.\n" +
+    "- After every successful merge, re-fetch the queue and re-resolve blockers.\n" +
+    "  Closing one issue often unblocks several others; do not stick to the\n" +
+    "  initial ordering past the first merge.\n" +
+    "- Stop when the queue has no runnable issues left or you hit your\n" +
+    "  subscription rate limit.\n" +
     "```\n",
 );
