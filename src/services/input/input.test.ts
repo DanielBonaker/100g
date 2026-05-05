@@ -37,7 +37,20 @@ let host: HTMLElement;
 beforeEach(() => {
   host = document.createElement("div");
   document.body.appendChild(host);
-  vi.useFakeTimers();
+  // Include "performance" so vi.advanceTimersByTime moves performance.now()
+  // (used by input.ts for monotonic timing).
+  vi.useFakeTimers({
+    toFake: [
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "setImmediate",
+      "clearImmediate",
+      "Date",
+      "performance",
+    ],
+  });
 });
 
 afterEach(() => {
@@ -291,7 +304,7 @@ describe("createInput — drag", () => {
     });
   });
 
-  it("ignores secondary pointers while a primary drag is active", () => {
+  it("ignores a redundant pointerdown with the same pointerId", () => {
     const input = createInput(host);
     const drag = vi.fn<(e: DragEvent) => void>();
     input.onDrag(drag);
@@ -302,47 +315,73 @@ describe("createInput — drag", () => {
       clientY: 0,
     });
     dispatchPointer(host, "pointerdown", {
-      pointerId: 2,
-      clientX: 500,
-      clientY: 500,
-    });
-    dispatchPointer(host, "pointermove", {
-      pointerId: 2,
-      clientX: 600,
-      clientY: 600,
-    });
-    dispatchPointer(host, "pointermove", {
       pointerId: 1,
-      clientX: 10,
-      clientY: 0,
-    });
-    dispatchPointer(host, "pointerup", {
-      pointerId: 2,
-      clientX: 700,
-      clientY: 700,
-    });
-    dispatchPointer(host, "pointerup", {
-      pointerId: 1,
-      clientX: 10,
-      clientY: 0,
+      clientX: 100,
+      clientY: 100,
     });
 
-    const phases = drag.mock.calls.map(([e]) => e.phase);
-    const starts = phases.filter((p) => p === "start").length;
-    const ends = phases.filter((p) => p === "end").length;
-    expect(starts).toBe(1);
-    expect(ends).toBe(1);
-
-    const move = drag.mock.calls
+    const starts = drag.mock.calls
       .map(([e]) => e)
-      .find((e) => e.phase === "move");
-    expect(move).toEqual({
-      phase: "move",
+      .filter((e) => e.phase === "start");
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toEqual({
+      phase: "start",
       startX: 0,
       startY: 0,
-      dx: 10,
+      dx: 0,
       dy: 0,
     });
+  });
+
+  it("force-ends a lost pointer when a different pointerId starts", () => {
+    const input = createInput(host);
+    const drag = vi.fn<(e: DragEvent) => void>();
+    input.onDrag(drag);
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointermove", {
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+    });
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 2,
+      clientX: 200,
+      clientY: 200,
+    });
+
+    const events = drag.mock.calls.map(([e]) => e);
+    expect(events).toEqual([
+      { phase: "start", startX: 0, startY: 0, dx: 0, dy: 0 },
+      { phase: "move", startX: 0, startY: 0, dx: 20, dy: 20 },
+      { phase: "end", startX: 0, startY: 0, dx: 20, dy: 20 },
+      { phase: "start", startX: 200, startY: 200, dx: 0, dy: 0 },
+    ]);
+  });
+
+  it("does not fire tap for a force-ended (lost) pointer", () => {
+    const input = createInput(host);
+    const tap = vi.fn<(e: TapEvent) => void>();
+    input.onTap(tap);
+
+    // pointerdown id=1 with no movement, then pointerdown id=2 force-ends id=1.
+    // No clean pointerup for id=1, so no tap should fire.
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 5,
+      clientY: 5,
+    });
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 2,
+      clientX: 50,
+      clientY: 50,
+    });
+
+    expect(tap).not.toHaveBeenCalled();
   });
 });
 
@@ -480,5 +519,137 @@ describe("createInput — subscriptions", () => {
     expect(tap).not.toHaveBeenCalled();
     expect(drag).not.toHaveBeenCalled();
     expect(key).not.toHaveBeenCalled();
+  });
+});
+
+describe("createInput — fan-out robustness", () => {
+  it("isolates a throwing handler so siblings still fire", () => {
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const input = createInput(host);
+    const a = vi.fn<(e: TapEvent) => void>(() => {
+      throw new Error("boom");
+    });
+    const b = vi.fn<(e: TapEvent) => void>();
+    input.onTap(a);
+    input.onTap(b);
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointerup", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+    expect(errSpy).toHaveBeenCalled();
+
+    errSpy.mockRestore();
+  });
+
+  it("silently drops pointermove that arrives without a prior pointerdown", () => {
+    const input = createInput(host);
+    const drag = vi.fn<(e: DragEvent) => void>();
+    input.onDrag(drag);
+
+    dispatchPointer(host, "pointermove", {
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    });
+
+    expect(drag).not.toHaveBeenCalled();
+  });
+
+  it("re-entrant disposal: a handler that disposes itself is safe", () => {
+    const input = createInput(host);
+    const a = vi.fn<(e: TapEvent) => void>();
+    const b = vi.fn<(e: TapEvent) => void>();
+    const disposers: (() => void)[] = [];
+    a.mockImplementation(() => {
+      disposers[0]?.();
+    });
+    disposers.push(input.onTap(a));
+    input.onTap(b);
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointerup", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+
+    // Snapshot was taken before A disposed itself, so both fired this round.
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointerup", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+
+    // A is gone now; only B fires on the second round.
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(2);
+  });
+
+  it("handler removal during dispatch: snapshot semantics keep removed peer for current dispatch", () => {
+    const input = createInput(host);
+    const a = vi.fn<(e: TapEvent) => void>();
+    const b = vi.fn<(e: TapEvent) => void>();
+    const disposers: (() => void)[] = [];
+    a.mockImplementation(() => {
+      // Index 1 is B's disposer (pushed second below).
+      disposers[1]?.();
+    });
+    disposers.push(input.onTap(a));
+    disposers.push(input.onTap(b));
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointerup", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+
+    // B was in the snapshot taken before fan-out, so it still fires this round.
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+
+    dispatchPointer(host, "pointerdown", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+    dispatchPointer(host, "pointerup", {
+      pointerId: 1,
+      clientX: 0,
+      clientY: 0,
+    });
+
+    // B is gone now; only A fires on the second round.
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).toHaveBeenCalledTimes(1);
   });
 });

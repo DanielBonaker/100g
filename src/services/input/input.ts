@@ -20,7 +20,13 @@ interface ActivePointer {
 }
 
 const fanOut = <E>(handlers: Set<(e: E) => void>, event: E): void => {
-  for (const h of [...handlers]) h(event);
+  for (const h of [...handlers]) {
+    try {
+      h(event);
+    } catch (err) {
+      console.error("[input] handler threw:", err);
+    }
+  }
 };
 
 export const createInput = (
@@ -36,14 +42,25 @@ export const createInput = (
 
   let active: ActivePointer | null = null;
 
-  const onPointerDown = (e: Event): void => {
-    const pe = e as PointerEvent;
+  const onPointerDown = (pe: PointerEvent): void => {
+    if (active !== null && active.pointerId !== pe.pointerId) {
+      // Previous pointer was lost (no pointerup observed — e.g. context menu,
+      // alt-tab). Force-end it synthetically so the service doesn't wedge.
+      fanOut(dragHandlers, {
+        phase: "end",
+        startX: active.startX,
+        startY: active.startY,
+        dx: active.lastX - active.startX,
+        dy: active.lastY - active.startY,
+      });
+      active = null;
+    }
     if (active !== null) return;
     active = {
       pointerId: pe.pointerId,
       startX: pe.clientX,
       startY: pe.clientY,
-      startedAt: Date.now(),
+      startedAt: performance.now(),
       lastX: pe.clientX,
       lastY: pe.clientY,
     };
@@ -56,8 +73,7 @@ export const createInput = (
     });
   };
 
-  const onPointerMove = (e: Event): void => {
-    const pe = e as PointerEvent;
+  const onPointerMove = (pe: PointerEvent): void => {
     if (active?.pointerId !== pe.pointerId) return;
     active.lastX = pe.clientX;
     active.lastY = pe.clientY;
@@ -75,7 +91,7 @@ export const createInput = (
 
     const dx = pe.clientX - active.startX;
     const dy = pe.clientY - active.startY;
-    const duration = Date.now() - active.startedAt;
+    const duration = performance.now() - active.startedAt;
     const moved = Math.sqrt(dx * dx + dy * dy);
 
     fanOut(dragHandlers, {
@@ -107,36 +123,42 @@ export const createInput = (
     }
   };
 
-  const onPointerUp = (e: Event): void => {
-    endPointer(e as PointerEvent);
+  const onPointerUp = (pe: PointerEvent): void => {
+    endPointer(pe);
   };
 
-  const onPointerCancel = (e: Event): void => {
-    endPointer(e as PointerEvent);
+  const onPointerCancel = (pe: PointerEvent): void => {
+    endPointer(pe);
   };
 
-  const onKeyDown = (e: Event): void => {
-    const ke = e as KeyboardEvent;
+  const onKeyDown = (ke: KeyboardEvent): void => {
     fanOut(keyHandlers, {
       key: ke.key,
       phase: ke.repeat ? "repeat" : "down",
     });
   };
 
-  const onKeyUp = (e: Event): void => {
-    const ke = e as KeyboardEvent;
+  const onKeyUp = (ke: KeyboardEvent): void => {
     fanOut(keyHandlers, { key: ke.key, phase: "up" });
   };
 
-  target.addEventListener("pointerdown", onPointerDown);
-  target.addEventListener("pointermove", onPointerMove);
-  target.addEventListener("pointerup", onPointerUp);
-  target.addEventListener("pointercancel", onPointerCancel);
-
-  const keyTarget: Document =
-    target instanceof Document ? target : target.ownerDocument;
-  keyTarget.addEventListener("keydown", onKeyDown);
-  keyTarget.addEventListener("keyup", onKeyUp);
+  // Narrow target to one branch of the union so TS picks the literal-keyed
+  // addEventListener overloads (PointerEvent, not generic Event).
+  if (target instanceof Document) {
+    target.addEventListener("pointerdown", onPointerDown);
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerUp);
+    target.addEventListener("pointercancel", onPointerCancel);
+    target.addEventListener("keydown", onKeyDown);
+    target.addEventListener("keyup", onKeyUp);
+  } else {
+    target.addEventListener("pointerdown", onPointerDown);
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerUp);
+    target.addEventListener("pointercancel", onPointerCancel);
+    target.ownerDocument.addEventListener("keydown", onKeyDown);
+    target.ownerDocument.addEventListener("keyup", onKeyUp);
+  }
 
   const subscribe = <E>(
     set: Set<(e: E) => void>,
