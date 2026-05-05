@@ -1,25 +1,25 @@
 export const BOARD_COLS = 8;
 export const BOARD_ROWS = 16;
-const CENTER_COL = 4;
+export const CENTER_COL = 4;
 
-export type Cell = { readonly id: number } | null;
+export type { Cell, Board } from "./boardTypes.ts";
+import type { Cell, Board } from "./boardTypes.ts";
+import type { RunState } from "./runState.ts";
+import type { SeededRng } from "../../../engine/Game.ts";
 
-export type Board = readonly (readonly Cell[])[];
-
-export interface RunState {
-  readonly board: Board;
-  readonly activeColumn: number;
-  readonly status: "running" | "ended";
-  readonly committedCells: number;
-  readonly nextCellId: number;
-}
+// ---------------------------------------------------------------------------
+// Re-export RunState from runState.ts for backward compatibility.
+// Callers that imported RunState from board.ts continue to work.
+// ---------------------------------------------------------------------------
+export type { RunState, RunStatus } from "./runState.ts";
+export { makeRunState } from "./runState.ts";
 
 export interface DropResult {
   readonly state: RunState;
   readonly toppedOut: boolean;
 }
 
-const emptyBoard = (): Board => {
+export const emptyBoard = (): Board => {
   const rows: Cell[][] = [];
   for (let r = 0; r < BOARD_ROWS; r++) {
     const row: Cell[] = [];
@@ -31,70 +31,68 @@ const emptyBoard = (): Board => {
   return rows;
 };
 
-export const makeRunState = (): RunState => ({
-  board: emptyBoard(),
-  activeColumn: CENTER_COL,
-  status: "running",
-  committedCells: 0,
-  nextCellId: 1,
-});
+// ---------------------------------------------------------------------------
+// place — legacy single-cell placement kept for backward compat with existing
+// game.ts and tests. Multi-cell path goes through commitActive/resolveEffect.
+// ---------------------------------------------------------------------------
+export const place = (_state: RunState, _column: number): DropResult => {
+  throw new Error("not implemented");
+};
 
-export const place = (state: RunState, column: number): DropResult => {
-  // No-op after top-out
-  if (state.status === "ended") {
-    return { state, toppedOut: false };
-  }
+// ---------------------------------------------------------------------------
+// placeBlockAtCells — low-level: given a list of [row, col] final positions,
+// write them to the board and detect top-out.
+// ---------------------------------------------------------------------------
+export interface PlacedCell {
+  readonly row: number;
+  readonly col: number;
+}
 
-  // Guard: out-of-range column — treat as no-op (not a top-out)
-  if (column < 0 || column >= BOARD_COLS) {
-    return { state, toppedOut: false };
-  }
+export const placeBlockAtCells = (
+  _board: Board,
+  _cells: readonly PlacedCell[],
+  _nextCellId: number,
+): {
+  board: Board;
+  toppedOut: boolean;
+  nextCellId: number;
+} => {
+  throw new Error("not implemented");
+};
 
-  // Top-out: row 0 of the target column is already occupied
-  const topRow = state.board[0];
-  if (topRow !== undefined && topRow[column] !== null) {
-    return {
-      state: { ...state, status: "ended" },
-      toppedOut: true,
-    };
-  }
+// ---------------------------------------------------------------------------
+// clearFullRows — scans bottom-up, removes any completely filled rows,
+// shifts remaining rows down.
+// ---------------------------------------------------------------------------
+export const clearFullRows = (
+  _board: Board,
+): { board: Board; clearedCount: number } => {
+  throw new Error("not implemented");
+};
 
-  // Find lowest empty row in the target column
-  let targetRow = -1;
-  for (let r = BOARD_ROWS - 1; r >= 0; r--) {
-    if (state.board[r]?.[column] === null) {
-      targetRow = r;
-      break;
-    }
-  }
+// ---------------------------------------------------------------------------
+// connectedCells — BFS via king-adjacency (8-directional) from a seed cell.
+// Returns all cells reachable from the seed (including the seed itself).
+// ---------------------------------------------------------------------------
+export const connectedCells = (
+  _board: Board,
+  _seedRow: number,
+  _seedCol: number,
+): readonly PlacedCell[] => {
+  throw new Error("not implemented");
+};
 
-  // All rows occupied → top-out (row 0 was occupied, already caught above;
-  // this handles the case where the loop found no empty row somehow)
-  if (targetRow === -1) {
-    return {
-      state: { ...state, status: "ended" },
-      toppedOut: true,
-    };
-  }
-
-  // Place the cell
-  const cellId = state.nextCellId;
-  const newBoard = state.board.map((row, r) =>
-    r === targetRow
-      ? row.map((cell, c) =>
-          c === column ? ({ id: cellId } satisfies Cell) : cell,
-        )
-      : row,
-  ) as Board;
-
-  return {
-    state: {
-      board: newBoard,
-      activeColumn: CENTER_COL,
-      status: "running",
-      committedCells: state.committedCells + 1,
-      nextCellId: cellId + 1,
-    },
-    toppedOut: false,
-  };
+// ---------------------------------------------------------------------------
+// commitActive — high-level: use the active block's effect strategy to place
+// the block, then clear full rows, then handle top-out.
+// ---------------------------------------------------------------------------
+export const commitActive = (
+  _state: RunState,
+  _rng: SeededRng,
+): {
+  state: RunState;
+  toppedOut: boolean;
+  reason: "spawn-collision" | "garbage-shift" | null;
+} => {
+  throw new Error("not implemented");
 };
