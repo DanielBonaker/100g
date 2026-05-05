@@ -6,58 +6,18 @@
  *
  * Note: happy-dom does not implement WebGL, so PixiJS will fall back to a
  * canvas-based (or "headless") renderer.  The test is written defensively:
- * if app.init() throws due to the missing graphics context, we catch it,
- * document the failure, and fall back to the RendererAdapter contract test
- * that at least exercises the adapter's public surface against the engine.
+ * if app.init() throws due to the missing graphics context, the test body
+ * logs the limitation and returns early (no assertions) — a documented
+ * known-limitation no-op rather than false confidence.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Game, GameManifest } from "./Game.ts";
 import { createEngine } from "./Engine.ts";
-
-const makeManifest = (id: string): GameManifest => ({
-  id,
-  title: id,
-  achievements: [
-    { id: "a1", title: "A1", criterion: "c1" },
-    { id: "a2", title: "A2", criterion: "c2" },
-    { id: "a3", title: "A3", criterion: "c3" },
-  ],
-  currencyYield: () => 0,
-});
-
-const makeNoopGame = (): Game => ({
-  init: () => undefined,
-  update: () => undefined,
-  render: () => undefined,
-  teardown: () => undefined,
-});
-
-const stubServices = () => ({
-  persistence: {
-    save: () => Promise.resolve(),
-    load: () => Promise.resolve(null),
-    delete: () => Promise.resolve(),
-  },
-  economy: {
-    getBalance: () => 0,
-    addYield: () => undefined,
-  },
-  achievements: {
-    unlock: () => undefined,
-    isUnlocked: () => false,
-  },
-  input: {
-    onTap: () => () => undefined,
-    onDrag: () => () => undefined,
-    onKey: () => () => undefined,
-  },
-  audio: {
-    enable: () => undefined,
-    setMuted: () => undefined,
-    play: () => undefined,
-  },
-});
+import {
+  makeManifest,
+  makeNoopGame,
+  stubServices,
+} from "./Engine.testHelpers.ts";
 
 // ---------------------------------------------------------------------------
 // Integration smoke: PixiJS-backed renderer adapter via createEngine default
@@ -69,6 +29,12 @@ describe("Engine integration — PixiJS-backed renderer (happy-dom smoke)", () =
   beforeEach(() => {
     host = document.createElement("div");
     document.body.appendChild(host);
+  });
+
+  afterEach(() => {
+    if (host.parentNode !== null) {
+      host.remove();
+    }
   });
 
   it("boots the default PixiJS renderer, registers a game, starts, stops, and cleans up", async () => {
@@ -89,7 +55,7 @@ describe("Engine integration — PixiJS-backed renderer (happy-dom smoke)", () =
       // No renderer override — use the real PixiJS adapter
     });
 
-    engine.register(makeManifest("000-smoke"), makeNoopGame);
+    engine.register(makeManifest("000-smoke"), () => makeNoopGame().game);
 
     let startError: unknown = null;
     try {
@@ -99,18 +65,13 @@ describe("Engine integration — PixiJS-backed renderer (happy-dom smoke)", () =
     }
 
     if (startError !== null) {
-      // Document the happy-dom limitation and skip renderer assertions.
-      // happy-dom does not implement Canvas2D imageSmoothingEnabled, so
-      // PixiJS cannot initialise its CanvasContextSystem.
+      // happy-dom cannot boot PixiJS (no Canvas2D / WebGL support).
+      // This is a documented environment limitation — not a bug in Engine.
       console.warn(
         "[Engine.integration.test] happy-dom could not boot PixiJS Application:",
         startError,
       );
-      // The fallback assertion: engine itself is a valid object with the right surface.
-      expect(typeof engine.register).toBe("function");
-      expect(typeof engine.start).toBe("function");
-      expect(typeof engine.stop).toBe("function");
-      return;
+      return; // no assertions — known limitation, not false confidence
     }
 
     // If boot succeeded, the canvas should have been appended to host

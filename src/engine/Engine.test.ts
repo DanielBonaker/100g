@@ -1,169 +1,17 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Game, GameManifest, ServiceRegistry } from "./Game.ts";
+import type { Game, SeededRng } from "./Game.ts";
 import type { EngineOptions, RendererAdapter } from "./Engine.ts";
 import { createEngine } from "./Engine.ts";
-
-// ---------------------------------------------------------------------------
-// Stubs
-// ---------------------------------------------------------------------------
-
-const stubServices = (): ServiceRegistry => ({
-  persistence: {
-    save: () => Promise.resolve(),
-    load: () => Promise.resolve(null),
-    delete: () => Promise.resolve(),
-  },
-  economy: {
-    getBalance: () => 0,
-    addYield: () => undefined,
-  },
-  achievements: {
-    unlock: () => undefined,
-    isUnlocked: () => false,
-  },
-  input: {
-    onTap: () => () => undefined,
-    onDrag: () => () => undefined,
-    onKey: () => () => undefined,
-  },
-  audio: {
-    enable: () => undefined,
-    setMuted: () => undefined,
-    play: () => undefined,
-  },
-});
-
-const makeManifest = (id: string): GameManifest => ({
-  id,
-  title: id,
-  achievements: [
-    { id: "a1", title: "A1", criterion: "c1" },
-    { id: "a2", title: "A2", criterion: "c2" },
-    { id: "a3", title: "A3", criterion: "c3" },
-  ],
-  currencyYield: () => 0,
-});
-
-const makeNoopGame = (): {
-  game: Game;
-  initCalls: number;
-  updateTicks: number[];
-  renderCalls: number;
-  teardownCalls: number;
-} => {
-  let initCalls = 0;
-  let renderCalls = 0;
-  let teardownCalls = 0;
-  const updateTicks: number[] = [];
-
-  const game: Game = {
-    init: () => {
-      initCalls++;
-    },
-    update: (dtMs) => {
-      updateTicks.push(dtMs);
-    },
-    render: () => {
-      renderCalls++;
-    },
-    teardown: () => {
-      teardownCalls++;
-    },
-  };
-  return {
-    game,
-    get initCalls() {
-      return initCalls;
-    },
-    get updateTicks() {
-      return updateTicks;
-    },
-    get renderCalls() {
-      return renderCalls;
-    },
-    get teardownCalls() {
-      return teardownCalls;
-    },
-  };
-};
-
-/** A fake renderer adapter that records attach/detach calls. */
-const makeFakeRenderer = (): RendererAdapter & {
-  attachCalls: number;
-  detachCalls: number;
-  lastHost: HTMLElement | null;
-} => {
-  let attachCalls = 0;
-  let detachCalls = 0;
-  let lastHost: HTMLElement | null = null;
-
-  return {
-    attach: (host) => {
-      attachCalls++;
-      lastHost = host;
-      return Promise.resolve();
-    },
-    detach: () => {
-      detachCalls++;
-      return Promise.resolve();
-    },
-    get attachCalls() {
-      return attachCalls;
-    },
-    get detachCalls() {
-      return detachCalls;
-    },
-    get lastHost() {
-      return lastHost;
-    },
-  };
-};
-
-/**
- * Build a controllable time source + scheduler for deterministic tick tests.
- * Calling `tick(ms)` advances virtual time and fires the scheduled callback once.
- */
-const makeVirtualScheduler = (): {
-  now: () => number;
-  schedule: (cb: FrameRequestCallback) => number;
-  cancelSchedule: (id: number) => void;
-  tick: (ms: number) => void;
-} => {
-  let virtualNow = 0;
-  let pending: ((ts: number) => void) | null = null;
-  let nextId = 1;
-
-  return {
-    now: () => virtualNow,
-    schedule: (cb) => {
-      pending = cb;
-      return nextId++;
-    },
-    cancelSchedule: () => {
-      pending = null;
-    },
-    tick: (ms) => {
-      virtualNow += ms;
-      const cb = pending;
-      pending = null;
-      cb?.(virtualNow);
-    },
-  };
-};
-
-/** Shared base options for unit tests — no real PixiJS, deterministic time. */
-const makeBaseOpts = (
-  renderer = makeFakeRenderer(),
-  scheduler = makeVirtualScheduler(),
-): EngineOptions => ({
-  renderer,
-  services: stubServices(),
-  now: scheduler.now,
-  schedule: scheduler.schedule,
-  cancelSchedule: scheduler.cancelSchedule,
-});
+import {
+  makeBaseOpts,
+  makeFakeRenderer,
+  makeManifest,
+  makeNoopGame,
+  makeVirtualScheduler,
+  stubServices,
+} from "./Engine.testHelpers.ts";
 
 // ---------------------------------------------------------------------------
 // Tests: register
@@ -256,6 +104,12 @@ describe("Engine.start / stop", () => {
     const engine = createEngine(host, opts);
     await expect(engine.stop()).resolves.toBeUndefined();
   });
+
+  it("stop when nothing is running does not call renderer.detach", async () => {
+    const engine = createEngine(host, opts);
+    await engine.stop();
+    expect(renderer.detachCalls).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -308,12 +162,17 @@ describe("Engine fixed-tick loop", () => {
     // Advance exactly one fixed tick worth of time → expect 1 update + 1 render
     scheduler.tick(TICK);
     expect(harness.updateTicks).toHaveLength(1);
-    expect(harness.updateTicks[0]).toBeCloseTo(TICK, 5);
+    const firstTick = harness.updateTicks[0];
+    expect(firstTick).toBeDefined();
+    expect(firstTick).toBeCloseTo(TICK, 5);
     expect(harness.renderCalls).toBe(1);
 
     // Advance another tick
     scheduler.tick(TICK);
     expect(harness.updateTicks).toHaveLength(2);
+    const secondTick = harness.updateTicks[1];
+    expect(secondTick).toBeDefined();
+    expect(secondTick).toBeCloseTo(TICK, 5);
     expect(harness.renderCalls).toBe(2);
 
     await engine.stop();
@@ -479,16 +338,10 @@ describe("Engine can restart with a different game", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: RendererAdapter interface guard
+// Tests: RendererAdapter
 // ---------------------------------------------------------------------------
 
 describe("RendererAdapter", () => {
-  it("fake renderer satisfies the RendererAdapter shape", () => {
-    const r: RendererAdapter = makeFakeRenderer();
-    expect(typeof r.attach).toBe("function");
-    expect(typeof r.detach).toBe("function");
-  });
-
   it("attach receives host element and dimensions when provided", async () => {
     let capturedHost: HTMLElement | null = null;
     const attachSpy = vi.fn(
@@ -517,5 +370,62 @@ describe("RendererAdapter", () => {
 
     expect(attachSpy).toHaveBeenCalledOnce();
     expect(capturedHost).toBe(host);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: unseeded RNG independence
+// ---------------------------------------------------------------------------
+
+describe("makeUnseededRng (via Engine.start context)", () => {
+  it("fork() returns a distinct object that also conforms to SeededRng", async () => {
+    const host = document.createElement("div");
+    const scheduler = makeVirtualScheduler();
+    let capturedRng: SeededRng | null = null;
+
+    const game: Game = {
+      init: (ctx) => {
+        capturedRng = ctx.rng;
+      },
+      update: () => undefined,
+      render: () => undefined,
+      teardown: () => undefined,
+    };
+
+    const engine = createEngine(
+      host,
+      makeBaseOpts(makeFakeRenderer(), scheduler),
+    );
+    engine.register(makeManifest("000-rng"), () => game);
+    await engine.start("000-rng");
+    await engine.stop();
+
+    expect(capturedRng).not.toBeNull();
+    const rng = capturedRng!;
+
+    const forked = rng.fork();
+
+    // fork() must return a distinct object
+    expect(forked).not.toBe(rng);
+
+    // both must conform to SeededRng: next, int, fork, state
+    expect(typeof rng.next).toBe("function");
+    expect(typeof rng.int).toBe("function");
+    expect(typeof rng.fork).toBe("function");
+    expect(rng.state).toBe("unseeded");
+
+    expect(typeof forked.next).toBe("function");
+    expect(typeof forked.int).toBe("function");
+    expect(typeof forked.fork).toBe("function");
+    expect(forked.state).toBe("unseeded");
+
+    // next() must return a number in [0, 1)
+    const val = rng.next();
+    expect(val).toBeGreaterThanOrEqual(0);
+    expect(val).toBeLessThan(1);
+
+    const forkedVal = forked.next();
+    expect(forkedVal).toBeGreaterThanOrEqual(0);
+    expect(forkedVal).toBeLessThan(1);
   });
 });

@@ -1,4 +1,4 @@
-import type { Game, GameManifest, ServiceRegistry } from "./Game.ts";
+import type { Game, GameManifest, SeededRng, ServiceRegistry } from "./Game.ts";
 
 // ---------------------------------------------------------------------------
 // Public surface — ≤ 5 methods (register, start, stop = 3)
@@ -65,6 +65,23 @@ async function createPixiRenderer(): Promise<RendererAdapter> {
 }
 
 // ---------------------------------------------------------------------------
+// Unseeded RNG — conformant stub used until the seeded service ships
+// ---------------------------------------------------------------------------
+
+function makeUnseededRng(): SeededRng {
+  return {
+    next: () => Math.random(),
+    int: (min, max) => {
+      const lo = Math.ceil(min);
+      const hi = Math.floor(max);
+      return Math.floor(lo + Math.random() * (hi - lo + 1));
+    },
+    fork: () => makeUnseededRng(),
+    state: "unseeded",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Internal constants
 // ---------------------------------------------------------------------------
 
@@ -86,7 +103,6 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
     fixedTickMs = DEFAULT_FIXED_TICK_MS,
   } = opts;
 
-  // Registry: gameId → { manifest, factory }
   const registry = new Map<
     string,
     { manifest: GameManifest; factory: () => Game }
@@ -95,10 +111,11 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
   // Runtime state
   let activeGame: Game | null = null;
   let activeGameId: string | null = null;
-  let rafId: number | null = null;
+  let frameId: number | null = null;
   let accumulator = 0;
   let lastTime = 0;
   let running = false;
+  let rendererAttached = false;
 
   // Lazy-resolved renderer
   let resolvedRenderer: RendererAdapter | null = null;
@@ -132,7 +149,7 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
 
     activeGame?.render();
 
-    rafId = schedule(tick);
+    frameId = schedule(tick);
   }
 
   // -- Engine interface implementation --
@@ -156,31 +173,25 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
       throw new Error(`Engine: no game registered with id "${gameId}"`);
     }
 
+    const width = rootEl.clientWidth || 375;
+    const height = rootEl.clientHeight || 667;
+
     const renderer = await getRenderer();
-    await renderer.attach(rootEl, {
-      width: rootEl.clientWidth || 375,
-      height: rootEl.clientHeight || 667,
-    });
+    await renderer.attach(rootEl, { width, height });
+    rendererAttached = true;
 
     const game = entry.factory();
 
     const dimensions = {
-      width: rootEl.clientWidth || 375,
-      height: rootEl.clientHeight || 667,
+      width,
+      height,
       devicePixelRatio: window.devicePixelRatio,
     };
 
     await game.init({
       container: rootEl,
       services,
-      rng: {
-        next: () => Math.random(),
-        int: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
-        fork: function () {
-          return this;
-        },
-        state: "unseeded",
-      },
+      rng: makeUnseededRng(),
       dimensions,
     });
 
@@ -189,7 +200,7 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
     running = true;
     lastTime = now();
     accumulator = 0;
-    rafId = schedule(tick);
+    frameId = schedule(tick);
   }
 
   async function stop(): Promise<void> {
@@ -199,9 +210,9 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
 
     running = false;
 
-    if (rafId !== null) {
-      cancelSchedule(rafId);
-      rafId = null;
+    if (frameId !== null) {
+      cancelSchedule(frameId);
+      frameId = null;
     }
 
     if (activeGame !== null) {
@@ -210,8 +221,11 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
       activeGameId = null;
     }
 
-    const renderer = await getRenderer();
-    await renderer.detach();
+    if (rendererAttached) {
+      const renderer = await getRenderer();
+      await renderer.detach();
+      rendererAttached = false;
+    }
   }
 
   return { register, start, stop };
