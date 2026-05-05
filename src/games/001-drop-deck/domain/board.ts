@@ -1,5 +1,6 @@
 export const BOARD_COLS = 8;
 export const BOARD_ROWS = 16;
+const CENTER_COL = 4;
 
 export type Cell = { readonly id: number } | null;
 
@@ -31,12 +32,62 @@ const emptyBoard = (): Board => {
 
 export const makeRunState = (): RunState => ({
   board: emptyBoard(),
-  activeColumn: 4,
+  activeColumn: CENTER_COL,
   status: "running",
   committedCells: 0,
 });
 
-// Intentionally not implemented — tests should fail until GREEN
-export const place = (_state: RunState, _column: number): DropResult => {
-  throw new Error("place: not implemented");
+let nextCellId = 1;
+
+export const place = (state: RunState, column: number): DropResult => {
+  // No-op after top-out
+  if (state.status === "ended") {
+    return { state, toppedOut: false };
+  }
+
+  // Top-out: row 0 of the target column is already occupied
+  const topRow = state.board[0];
+  if (topRow !== undefined && topRow[column] !== null) {
+    return {
+      state: { ...state, status: "ended" },
+      toppedOut: true,
+    };
+  }
+
+  // Find lowest empty row in the target column
+  let targetRow = -1;
+  for (let r = BOARD_ROWS - 1; r >= 0; r--) {
+    if (state.board[r]?.[column] === null) {
+      targetRow = r;
+      break;
+    }
+  }
+
+  // All rows occupied → top-out (row 0 was occupied, already caught above;
+  // this handles the case where the loop found no empty row somehow)
+  if (targetRow === -1) {
+    return {
+      state: { ...state, status: "ended" },
+      toppedOut: true,
+    };
+  }
+
+  // Place the cell
+  const newBoard = state.board.map((row, r) =>
+    r === targetRow
+      ? row.map((cell, c) =>
+          c === column ? ({ id: nextCellId++ } satisfies Cell) : cell,
+        )
+      : row,
+  ) as Board;
+
+  return {
+    state: {
+      board: newBoard,
+      activeColumn: CENTER_COL,
+      status: "running",
+      committedCells: state.committedCells + 1,
+    },
+    toppedOut: false,
+  };
 };
