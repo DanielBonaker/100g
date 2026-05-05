@@ -8,6 +8,16 @@
  * objects, arrays, numbers, strings, booleans, Maps, Sets, Dates). Do NOT
  * pass functions or class instances with non-enumerable state. IndexedDB uses
  * the Structured Clone algorithm natively — JSON.stringify is not used.
+ *
+ * Debounce coalescing contract:
+ * - When debounceMs > 0, writes for the same key are coalesced: the pending
+ *   value is replaced and the timer is reset. All waiting promise resolvers
+ *   are collected and fired together when the flush occurs.
+ * - When debounceMs is undefined or <= 0, the write is immediate. If a pending
+ *   debounced save exists for the same key, the pending value is REPLACED by
+ *   the new value and ALL waiting resolvers are resolved together when the
+ *   merged write commits. This ensures no pending entry is left with an
+ *   orphaned timer and unresolved resolvers/rejecters.
  */
 import type { Persistence, SaveOptions } from "./types.ts";
 
@@ -47,16 +57,24 @@ export interface PersistenceOptions {
   /** Injected cancel — defaults to clearTimeout. */
   readonly cancelSchedule?: (handle: unknown) => void;
   /**
-   * Optional write counter hook — called once each time a value is flushed to
-   * IDB. Used in tests to assert debounce coalescing.
+   * Test-only hooks. Kept under a `testing` namespace so they don't pollute
+   * editor autocomplete for production callers.
    */
-  readonly onWrite?: () => void;
+  readonly testing?: {
+    /**
+     * Called once each time a value is flushed to IDB. Use in tests to assert
+     * debounce coalescing write counts.
+     */
+    readonly onWrite?: () => void;
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Internal: open the database
 // ---------------------------------------------------------------------------
 
+// Co-located object store for service-internal metadata (schema version, etc.).
+// Never use for app data.
 const IDB_META_STORE = "__meta__";
 const META_SCHEMA_KEY = "__schemaVersion__";
 
@@ -180,7 +198,7 @@ export const createPersistence = (opts?: PersistenceOptions): Persistence => {
     ((h) => {
       clearTimeout(h as ReturnType<typeof setTimeout>);
     });
-  const onWrite = opts?.onWrite;
+  const onWrite = opts?.testing?.onWrite;
 
   // Lazily resolved DB connection
   let dbPromise: Promise<IDBDatabase> | null = null;
@@ -216,8 +234,10 @@ export const createPersistence = (opts?: PersistenceOptions): Persistence => {
           }
         }
 
-        // Always record current schema version so future opens know whether a
-        // migration was already applied.
+        // NOTE: schemaVersion is recorded even if a migration step threw above.
+        // Migrations are not transactional with respect to the version bump —
+        // a failed migration will not re-run on next open. Acceptable for 100g's
+        // pre-Game-001 stage; revisit if real persistent user data ships.
         await idbPut(db, IDB_META_STORE, META_SCHEMA_KEY, schemaVersion);
 
         return db;
@@ -234,8 +254,10 @@ export const createPersistence = (opts?: PersistenceOptions): Persistence => {
     const entry = pending.get(key);
     if (entry === undefined) return;
 
-    // Cancel the scheduled timer and remove from pending BEFORE the async write
-    // so that concurrent flushes don't double-write.
+    // Sync delete-before-await ensures concurrent flush callers see the entry
+    // as already taken. Map.delete is synchronous, so any second caller that
+    // reaches `pending.get(key)` after this line will see `undefined` and
+    // return early — no double-write can occur.
     cancelSchedule(entry.handle);
     pending.delete(key);
 
@@ -256,12 +278,39 @@ export const createPersistence = (opts?: PersistenceOptions): Persistence => {
      * subsequent calls for the same key within the window replace the pending
      * value and reset the timer. All in-flight save promises for a key resolve
      * together when the next flush completes.
+     *
+     * When debounceMs is undefined or <= 0, the write is immediate. If a
+     * pending debounced save exists for the same key, the pending value is
+     * REPLACED by the new value and ALL waiting resolvers are resolved together
+     * when the merged write commits.
      */
     save(key: string, value: unknown, opts?: SaveOptions): Promise<void> {
       const debounceMs = opts?.debounceMs;
 
       if (debounceMs === undefined || debounceMs <= 0) {
-        // Immediate write
+        // Immediate write. If there is a pending debounced entry for this key,
+        // absorb its resolvers/rejecters so they are settled alongside this
+        // write and no pending entry is left stranded.
+        const existingEntry = pending.get(key);
+        if (existingEntry !== undefined) {
+          // Cancel the pending timer and take ownership of the entry's waiters.
+          cancelSchedule(existingEntry.handle);
+          pending.delete(key);
+          const priorResolvers = existingEntry.resolvers;
+          const priorRejecters = existingEntry.rejecters;
+          return getDb().then((db) =>
+            idbPut(db, storeName, key, value).then(
+              () => {
+                onWrite?.();
+                for (const resolve of priorResolvers) resolve();
+              },
+              (err: unknown) => {
+                for (const reject of priorRejecters) reject(err);
+                throw err;
+              },
+            ),
+          );
+        }
         return getDb().then((db) => {
           return idbPut(db, storeName, key, value).then(() => {
             onWrite?.();
@@ -327,21 +376,4 @@ export const createPersistence = (opts?: PersistenceOptions): Persistence => {
   };
 
   return persistence;
-};
-
-/** Exported for use in runMigrations standalone if needed. */
-export const runMigrations = async (
-  store: Persistence,
-  migrations: readonly Migration[],
-  fromVersion: number,
-  toVersion: number,
-): Promise<void> => {
-  for (const migration of migrations) {
-    if (
-      migration.fromVersion >= fromVersion &&
-      migration.toVersion <= toVersion
-    ) {
-      await migration.migrate(store);
-    }
-  }
 };

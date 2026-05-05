@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { createPersistence } from "./persistence.ts";
+import { createPersistence } from "./index.ts";
 import type { PersistenceOptions } from "./persistence.ts";
 
 // ---------------------------------------------------------------------------
@@ -193,8 +193,10 @@ describe("debounce — coalesces rapid saves", () => {
     const store = createPersistence({
       idb,
       ...sched.opts,
-      onWrite: () => {
-        writeCount++;
+      testing: {
+        onWrite: () => {
+          writeCount++;
+        },
       },
     });
 
@@ -232,8 +234,10 @@ describe("debounce — timer resets on new save", () => {
     const store = createPersistence({
       idb,
       ...sched.opts,
-      onWrite: () => {
-        writeCount++;
+      testing: {
+        onWrite: () => {
+          writeCount++;
+        },
       },
     });
 
@@ -272,8 +276,10 @@ describe("debounce — independent keys", () => {
     const store = createPersistence({
       idb,
       ...sched.opts,
-      onWrite: () => {
-        writeCount++;
+      testing: {
+        onWrite: () => {
+          writeCount++;
+        },
       },
     });
 
@@ -291,7 +297,44 @@ describe("debounce — independent keys", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Load flushes pending debounced save
+// 6. Immediate write absorbs a pending debounced entry — both promises resolve
+// ---------------------------------------------------------------------------
+
+describe("debounce — immediate write absorbs pending entry", () => {
+  it("debounced save then immediate save: both promises resolve, one write, final value wins", async () => {
+    const idb = makeFakeIdb();
+    let writeCount = 0;
+
+    const sched = makeFakeScheduler();
+    const store = createPersistence({
+      idb,
+      ...sched.opts,
+      testing: {
+        onWrite: () => {
+          writeCount++;
+        },
+      },
+    });
+
+    // Start a debounced save (timer won't fire on its own — scheduler is manual)
+    const p1 = store.save("k", "v1", { debounceMs: 100 });
+
+    // Immediately follow with an immediate write (no debounceMs)
+    const p2 = store.save("k", "v2");
+
+    // Both promises must resolve (neither stranded)
+    await Promise.all([p1, p2]);
+
+    // Exactly one IDB write should have happened (the merged flush)
+    expect(writeCount).toBe(1);
+
+    // Final value must be the immediate write's value
+    expect(await store.load<string>("k")).toBe("v2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Load flushes pending debounced save
 // ---------------------------------------------------------------------------
 
 describe("debounce — load flushes pending write", () => {
@@ -314,7 +357,7 @@ describe("debounce — load flushes pending write", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. Migration: schema version bump with contrived migration
+// 8. Migration: schema version bump with contrived migration
 // ---------------------------------------------------------------------------
 
 describe("migration runner", () => {
@@ -355,7 +398,7 @@ describe("migration runner", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. Delete cancels pending debounced save
+// 9. Delete cancels pending debounced save
 // ---------------------------------------------------------------------------
 
 describe("delete — cancels pending debounced save", () => {

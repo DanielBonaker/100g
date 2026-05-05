@@ -8,7 +8,7 @@ import type {
 import { createDropDeckGame } from "./game.ts";
 import { BOARD_ROWS, BOARD_COLS } from "./domain/board.ts";
 import { IDBFactory } from "fake-indexeddb";
-import { createPersistence } from "../../services/persistence/persistence.ts";
+import { createPersistence } from "../../services/persistence/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal GameContext with a controllable input service
@@ -241,5 +241,43 @@ describe("Game persistence — cross-session restore", () => {
     expect(stateAfterB.board[BOARD_ROWS - 1]![4]).not.toBeNull();
 
     await gameB.teardown();
+  });
+});
+
+describe("Game persistence — malformed saved state falls back to fresh state", () => {
+  it("persisted garbage is ignored: game starts fresh and the bad entry is cleared", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "drop-deck-malformed",
+    });
+
+    // Write a deliberately malformed object directly via persistence.save
+    // (bypasses the game's own save path; board is a string, not an array)
+    await persistence.save("drop-deck-run", {
+      board: "not-an-array",
+      activeColumn: true,
+      status: 99,
+    });
+
+    // Mount a fresh game — it must silently fall back to makeRunState()
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const state = game.__getRunState();
+    // A fresh state always has committedCells = 0 and status = "running"
+    expect(state.committedCells).toBe(0);
+    expect(state.status).toBe("running");
+    // Board must be a proper array (not the garbage string)
+    expect(Array.isArray(state.board)).toBe(true);
+    expect(state.board.length).toBe(BOARD_ROWS);
+
+    // The malformed entry must have been deleted — next load returns null
+    const stored = await persistence.load("drop-deck-run");
+    expect(stored).toBeNull();
+
+    await game.teardown();
   });
 });
