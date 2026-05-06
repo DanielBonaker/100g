@@ -382,7 +382,7 @@ const makeStateWithAlmostFullBottomRow = (
   const base = makeRunState("seed-test");
   const board = emptyBoard().map((row, r) => {
     if (r === BOARD_ROWS - 1) {
-      return row.map((cell, c) => (c === 4 ? null : { id: 1000 + c }));
+      return row.map((_cell, c) => (c === 4 ? null : { id: 1000 + c }));
     }
     return row;
   }) as RunState["board"];

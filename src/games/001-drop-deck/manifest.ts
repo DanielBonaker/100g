@@ -6,20 +6,26 @@ export const manifest: GameManifest<RunState> = {
   title: "Drop Deck",
   achievements: [
     {
-      id: "dd-first-drop",
-      title: "First Drop",
-      criterion: "Commit your first block to the board",
-    },
-    {
-      id: "dd-five-drops",
-      title: "Five Drops",
-      criterion: "Commit five blocks in a single run",
-    },
-    {
-      id: "dd-survive-100",
+      id: "dd-rows-100",
       title: "Centurion Stack",
-      criterion: "Commit 100 blocks without topping out",
+      criterion: "Clear 100 rows in a single run.",
+    },
+    {
+      id: "dd-round-10",
+      title: "Tenfold Climb",
+      criterion: "Reach round 10 across any save.",
+    },
+    {
+      id: "dd-deck-20",
+      title: "Full Deck",
+      criterion: "Grow the deck to 20 blocks.",
     },
   ],
-  currencyYield: (state) => Math.min(state.committedBlocks, 100),
+  // min(rows / 5, 200) + min(round - 1, 100), capped at 300
+  currencyYield: (state) =>
+    Math.min(
+      Math.min(state.clearedRowsThisRun / 5, 200) +
+        Math.min(state.round - 1, 100),
+      300,
+    ),
 };
