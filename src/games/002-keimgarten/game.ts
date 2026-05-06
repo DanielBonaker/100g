@@ -4,6 +4,7 @@ import type {
   SeededRng,
   Persistence,
   Economy,
+  Achievements,
 } from "../../engine/Game.ts";
 import type { Stage } from "./render/stage.ts";
 import type { Disposer } from "../../services/input/types.ts";
@@ -66,6 +67,7 @@ export const createKeimgartenGame = (): Game & {
   let runState: RunState = makeRunState();
   let persistence: Persistence | null = null;
   let economy: Economy | null = null;
+  let achievements: Achievements | null = null;
   let rng: SeededRng | null = null;
   let container: HTMLElement | null = null;
 
@@ -198,6 +200,25 @@ export const createKeimgartenGame = (): Game & {
   };
 
   // ---------------------------------------------------------------------------
+  // Achievements forwarding helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Diff the before/after achievementsUnlocked arrays and forward any newly
+   * unlocked IDs to the cross-game achievements service. Also updates runState.
+   */
+  const forwardNewAchievements = (newState: RunState): void => {
+    if (achievements !== null) {
+      for (const id of newState.achievementsUnlocked) {
+        if (!runState.achievementsUnlocked.includes(id)) {
+          achievements.unlock("002-keimgarten", id);
+        }
+      }
+    }
+    runState = newState;
+  };
+
+  // ---------------------------------------------------------------------------
   // Tap handler
   // ---------------------------------------------------------------------------
 
@@ -322,6 +343,7 @@ export const createKeimgartenGame = (): Game & {
     container = ctx.container;
     persistence = ctx.services.persistence;
     economy = ctx.services.economy;
+    achievements = ctx.services.achievements;
     rng = ctx.rng;
 
     // Restore from persistence; normalizeRunState fills in fields added in
@@ -515,7 +537,7 @@ export const createKeimgartenGame = (): Game & {
         return;
       }
 
-      runState = result.state;
+      forwardNewAchievements(result.state);
 
       // Remove sprites for consumed instances
       if (pixiAvailable) {
@@ -573,7 +595,7 @@ export const createKeimgartenGame = (): Game & {
 
       // Roll creature
       const result = roll(runState, size, rng);
-      runState = result.state;
+      forwardNewAchievements(result.state);
 
       // Refresh overlays
       shopOv.refresh(runState, economy.getBalance());
@@ -763,6 +785,7 @@ export const createKeimgartenGame = (): Game & {
     container = null;
     persistence = null;
     economy = null;
+    achievements = null;
     rng = null;
   };
 

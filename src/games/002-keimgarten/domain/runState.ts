@@ -33,6 +33,12 @@ export interface RunState {
    * an array (not Set) for serialization. Sorted ascending.
    */
   readonly unlockedFusionTiers: readonly number[];
+  /**
+   * Achievement IDs that have been permanently unlocked for this save.
+   * Persisted as an array (not Set) for serialization. Sorted in
+   * ACHIEVEMENT_IDS order. See domain/achievements.ts.
+   */
+  readonly achievementsUnlocked: readonly string[];
 }
 
 export const STARTER_INSTANCE_ID = 1;
@@ -59,6 +65,7 @@ export const makeRunState = (rngSeed?: string): RunState => ({
   uniqueOwnedIds: [0],
   lastYieldPaid: 0,
   unlockedFusionTiers: [],
+  achievementsUnlocked: [],
 });
 
 /**
@@ -87,6 +94,7 @@ interface MaybeRunState {
   uniqueOwnedIds?: unknown;
   lastYieldPaid?: unknown;
   unlockedFusionTiers?: unknown;
+  achievementsUnlocked?: unknown;
 }
 
 interface MaybeOwnedCreature {
@@ -147,6 +155,13 @@ export const isRunState = (value: unknown): value is RunState => {
       if (typeof item !== "number") return false;
     }
   }
+  // achievementsUnlocked is optional in saved data (migration: absent = [])
+  if (v.achievementsUnlocked !== undefined) {
+    if (!Array.isArray(v.achievementsUnlocked)) return false;
+    for (const item of v.achievementsUnlocked as unknown[]) {
+      if (typeof item !== "string") return false;
+    }
+  }
   for (const item of v.owned as unknown[]) {
     if (typeof item !== "object" || item === null) return false;
     const c = item as MaybeOwnedCreature;
@@ -186,6 +201,13 @@ export const normalizeRunState = (value: unknown): RunState => {
       ? (v.unlockedFusionTiers as readonly number[])
       : [];
 
+  // Backfill achievementsUnlocked when field is absent (migration)
+  const achievementsUnlocked: readonly string[] =
+    Array.isArray(v.achievementsUnlocked) &&
+    (v.achievementsUnlocked as unknown[]).every((x) => typeof x === "string")
+      ? (v.achievementsUnlocked as readonly string[])
+      : [];
+
   return {
     ...(value as RunState),
     totalTapsByCreatureId: isRecordNumberNumber(v.totalTapsByCreatureId)
@@ -194,5 +216,6 @@ export const normalizeRunState = (value: unknown): RunState => {
     uniqueOwnedIds,
     lastYieldPaid: typeof v.lastYieldPaid === "number" ? v.lastYieldPaid : 0,
     unlockedFusionTiers,
+    achievementsUnlocked,
   };
 };

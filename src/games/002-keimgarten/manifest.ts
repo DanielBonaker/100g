@@ -7,19 +7,19 @@ export const manifest: GameManifest<RunState> = {
   title: "Keimgarten",
   achievements: [
     {
-      id: "kg-first-keim",
-      title: "Erster Keim",
-      criterion: "Open the garden for the first time.",
+      id: "first-fusion",
+      title: "Erste Verschmelzung",
+      criterion: "Complete the first fusion of any output size",
     },
     {
-      id: "kg-walk-10",
-      title: "Spaziergang",
-      criterion: "Watch a creature walk for 10 cumulative ticks.",
+      id: "first-archon",
+      title: "Archon erwacht",
+      criterion: "Own at least one size-8 (Archon) creature",
     },
     {
-      id: "kg-nap-watcher",
-      title: "Schlafwächter",
-      criterion: "Observe a creature in nap state.",
+      id: "vollkommen",
+      title: "Vollkommen",
+      criterion: "Own the unique size-9 (Vollkommen) creature",
     },
   ],
   currencyYield: compute,

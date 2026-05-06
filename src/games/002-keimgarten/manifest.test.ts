@@ -16,6 +16,28 @@ describe("Keimgarten manifest", () => {
     expect(new Set(ids).size).toBe(3);
   });
 
+  it("has the required achievement ids", () => {
+    const ids = manifest.achievements.map((a) => a.id);
+    expect(ids).toContain("first-fusion");
+    expect(ids).toContain("first-archon");
+    expect(ids).toContain("vollkommen");
+  });
+
+  it("first-fusion achievement has German title", () => {
+    const ach = manifest.achievements.find((a) => a.id === "first-fusion");
+    expect(ach?.title).toBe("Erste Verschmelzung");
+  });
+
+  it("first-archon achievement has German title", () => {
+    const ach = manifest.achievements.find((a) => a.id === "first-archon");
+    expect(ach?.title).toBe("Archon erwacht");
+  });
+
+  it("vollkommen achievement has German title", () => {
+    const ach = manifest.achievements.find((a) => a.id === "vollkommen");
+    expect(ach?.title).toBe("Vollkommen");
+  });
+
   it("currencyYield is deterministic and non-negative for a fresh RunState", () => {
     // Fresh state: uniqueOwnedIds=[0] (starter Keim, tier 1) → compute = 0 + 1*2 = 2
     const state = makeRunState();
