@@ -65,8 +65,17 @@ const makeCtx = (
         load: () => Promise.resolve(null),
         delete: () => Promise.resolve(),
       },
-      economy: { getBalance: () => 0, addYield: () => undefined },
-      achievements: { unlock: () => undefined, isUnlocked: () => false },
+      economy: {
+        getBalance: () => 0,
+        addYield: () => undefined,
+        subscribe: () => () => undefined,
+      },
+      achievements: {
+        unlock: () => undefined,
+        getUnlocked: () => [],
+        isUnlocked: () => false,
+        subscribe: () => () => undefined,
+      },
       input,
       audio: {
         enable: () => undefined,
