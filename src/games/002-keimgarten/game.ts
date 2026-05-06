@@ -26,6 +26,9 @@ import {
   createBestiaryOverlay,
   type BestiaryOverlay,
 } from "./render/bestiaryOverlay.ts";
+import { createShopOverlay, type ShopOverlay } from "./render/shopOverlay.ts";
+import { priceFor, roll } from "./domain/shop.ts";
+import type { Size } from "./domain/shop.ts";
 
 export { manifest };
 
@@ -78,6 +81,12 @@ export const createKeimgartenGame = (): Game & {
   // Bestiary overlay + button
   let bestiaryOverlay: BestiaryOverlay | null = null;
   let bestiaryButton: HTMLButtonElement | null = null;
+
+  // Shop overlay + button + balance display
+  let shopOverlay: ShopOverlay | null = null;
+  let shopButton: HTMLButtonElement | null = null;
+  let balanceDisplay: HTMLDivElement | null = null;
+  let economyDisposer: (() => void) | null = null;
 
   // ---------------------------------------------------------------------------
   // Nameplate + heart particle DOM overlay
@@ -364,6 +373,124 @@ export const createKeimgartenGame = (): Game & {
       overlay.show();
     });
 
+    // ---------------------------------------------------------------------------
+    // Balance display (top HUD)
+    // ---------------------------------------------------------------------------
+    const balanceDiv = document.createElement("div");
+    balanceDiv.dataset.role = "balance-display";
+    balanceDiv.style.cssText = [
+      "position:absolute",
+      "top:4px",
+      "left:4px",
+      "color:#fff",
+      "font-family:monospace",
+      "font-size:10px",
+      "background:rgba(0,0,0,0.6)",
+      "padding:2px 6px",
+      "border-radius:3px",
+      "pointer-events:none",
+      "z-index:10",
+    ].join(";");
+    // economy is never null here — it was just assigned from ctx.services.economy
+    const economySvc = economy;
+    balanceDiv.textContent = String(economySvc.getBalance());
+    container.appendChild(balanceDiv);
+    balanceDisplay = balanceDiv;
+
+    // Subscribe to economy changes to refresh balance display + shop overlay
+    economyDisposer = economySvc.subscribe((event) => {
+      if (balanceDisplay !== null) {
+        balanceDisplay.textContent = String(event.newBalance);
+      }
+      if (shopOverlay !== null) {
+        shopOverlay.refresh(runState, event.newBalance);
+      }
+    });
+
+    // ---------------------------------------------------------------------------
+    // Shop button
+    // ---------------------------------------------------------------------------
+    const shopBtn = document.createElement("button");
+    shopBtn.dataset.role = "shop-button";
+    shopBtn.textContent = "Shop";
+    shopBtn.style.cssText = [
+      "position:absolute",
+      "bottom:4px",
+      "left:4px",
+      "min-width:60px",
+      "min-height:44px",
+      "background:rgba(0,0,0,0.75)",
+      "color:#fff",
+      "font-family:monospace",
+      "font-size:10px",
+      "border:1px solid #888",
+      "border-radius:4px",
+      "cursor:pointer",
+      "z-index:10",
+      "padding:4px 8px",
+      "box-sizing:border-box",
+    ].join(";");
+    container.appendChild(shopBtn);
+    shopButton = shopBtn;
+
+    // Shop overlay
+    const shopOv = createShopOverlay();
+    container.appendChild(shopOv.element);
+    shopOverlay = shopOv;
+
+    // Initial refresh of shop
+    shopOv.refresh(runState, economySvc.getBalance());
+
+    // Wire Shop button click → show overlay
+    shopBtn.addEventListener("click", () => {
+      shopOv.show();
+    });
+
+    // Wire size tap: spend → roll → update state
+    shopOv.onSizeTap = (size: Size): void => {
+      if (economy === null || rng === null) return;
+      const price = priceFor(size);
+      const spent = economy.spend("002-keimgarten", price);
+      if (!spent) return;
+
+      // Roll creature
+      const result = roll(runState, size, rng);
+      runState = result.state;
+
+      // Refresh overlays
+      shopOv.refresh(runState, economy.getBalance());
+      bestiaryOverlay?.refresh(runState);
+
+      // Add sprite for new creature
+      if (pixiAvailable && stage !== null) {
+        const capturedStage = stage;
+        void (async () => {
+          const [{ createCreatureSprite }, pixiModule] = await Promise.all([
+            import("./render/creatureSprite.ts"),
+            import("pixi.js"),
+          ]);
+          const playContainer = capturedStage.play as {
+            addChild(child: unknown): void;
+          };
+          const sprite = createCreatureSprite(
+            result.drawn,
+            capturedStage.app,
+            pixiModule,
+          ) as { position: { set(x: number, y: number): void } };
+          sprite.position.set(result.drawn.position.x, result.drawn.position.y);
+          playContainer.addChild(sprite);
+          pixiSprites.set(result.drawn.instanceId, sprite);
+        })();
+      } else {
+        syncFallbackSprite(result.drawn);
+      }
+
+      // Persist
+      if (persistence !== null) {
+        void persistence.save("keimgarten-run", runState, { debounceMs: 50 });
+      }
+    };
+
     // Try Pixi path first
     try {
       const [{ createStage }, { createCreatureSprite }, pixiModule] =
@@ -484,6 +611,24 @@ export const createKeimgartenGame = (): Game & {
     if (bestiaryOverlay !== null) {
       bestiaryOverlay.destroy();
       bestiaryOverlay = null;
+    }
+
+    // Remove shop button, overlay, balance display, and subscription
+    if (economyDisposer !== null) {
+      economyDisposer();
+      economyDisposer = null;
+    }
+    if (shopButton !== null) {
+      shopButton.remove();
+      shopButton = null;
+    }
+    if (shopOverlay !== null) {
+      shopOverlay.destroy();
+      shopOverlay = null;
+    }
+    if (balanceDisplay !== null) {
+      balanceDisplay.remove();
+      balanceDisplay = null;
     }
 
     container = null;

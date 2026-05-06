@@ -57,6 +57,7 @@ const makeSpyEconomy = (): SpyEconomy => {
     addYieldSpy,
     getBalance: () => 0,
     addYield: addYieldSpy,
+    spend: () => false,
     subscribe: () => () => undefined,
   };
 };
@@ -84,6 +85,7 @@ const makeCtx = (
       economy: overrides.economy ?? {
         getBalance: () => 0,
         addYield: () => undefined,
+        spend: () => false,
         subscribe: () => () => undefined,
       },
       achievements: overrides.achievements ?? {

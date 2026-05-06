@@ -30,6 +30,7 @@ const makeCtx = (
       economy: economy ?? {
         getBalance: () => 0,
         addYield: () => undefined,
+        spend: () => false,
         subscribe: () => () => undefined,
       },
       achievements: {
@@ -442,6 +443,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const ctx = makeCtx(undefined, undefined, economy);
@@ -458,6 +460,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const idb = new IDBFactory();
@@ -484,6 +487,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const idb = new IDBFactory();
@@ -622,6 +626,193 @@ describe("Bestiary button and overlay", () => {
     const minH = parseInt(btn!.style.minHeight, 10);
     expect(minW).toBeGreaterThanOrEqual(44);
     expect(minH).toBeGreaterThanOrEqual(44);
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shop button + overlay integration
+// ---------------------------------------------------------------------------
+
+/** Build an economy mock with a mutable balance for shop tests */
+const makeMockEconomy = (initialBalance = 0): Economy => {
+  let balance = initialBalance;
+  type Handler = Parameters<Economy["subscribe"]>[0];
+  const handlers: Handler[] = [];
+
+  return {
+    getBalance: () => balance,
+    addYield: (gameId, amount) => {
+      balance += amount;
+      const event = { gameId, amount, newBalance: balance };
+      for (const h of handlers) h(event);
+    },
+    spend: (gameId, amount) => {
+      if (amount <= 0) throw new RangeError("amount must be > 0");
+      if (balance < amount) return false;
+      balance -= amount;
+      const event = { gameId, amount: -amount, newBalance: balance };
+      for (const h of handlers) h(event);
+      return true;
+    },
+    subscribe: (handler) => {
+      handlers.push(handler);
+      return () => {
+        const idx = handlers.indexOf(handler);
+        if (idx !== -1) handlers.splice(idx, 1);
+      };
+    },
+  };
+};
+
+describe("Shop button and overlay", () => {
+  it("Shop button appears in container after init", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector("[data-role='shop-button']");
+    expect(btn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("Shop button hit-target is >= 44x44 px", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    const minW = parseInt(btn!.style.minWidth, 10);
+    const minH = parseInt(btn!.style.minHeight, 10);
+    expect(minW).toBeGreaterThanOrEqual(44);
+    expect(minH).toBeGreaterThanOrEqual(44);
+
+    await game.teardown();
+  });
+
+  it("clicking Shop button shows the shop overlay", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    const overlay = ctx.container.querySelector<HTMLElement>(
+      "[data-role='shop-overlay']",
+    );
+    expect(overlay).not.toBeNull();
+
+    // Before click: hidden
+    expect(overlay!.style.display).toBe("none");
+    btn!.click();
+    // After click: visible
+    expect(overlay!.style.display).not.toBe("none");
+
+    await game.teardown();
+  });
+
+  it("shop overlay disappears after teardown", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown();
+
+    const overlay = ctx.container.querySelector("[data-role='shop-overlay']");
+    expect(overlay).toBeNull();
+  });
+
+  it("buying size 1 (balance >= 3) adds a new creature and deducts 3", async () => {
+    const economy = makeMockEconomy(100);
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const initialOwned = game.__getRunState().owned.length;
+
+    // Open shop
+    const shopBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    shopBtn!.click();
+
+    // Click size 1
+    const size1Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='1']");
+    expect(size1Btn).not.toBeNull();
+    size1Btn!.click();
+
+    const afterState = game.__getRunState();
+    expect(afterState.owned).toHaveLength(initialOwned + 1);
+    expect(economy.getBalance()).toBe(97); // 100 - 3
+
+    await game.teardown();
+  });
+
+  it("buying with insufficient balance is a no-op", async () => {
+    const economy = makeMockEconomy(2); // less than size 1 price (3)
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const initialOwned = game.__getRunState().owned.length;
+
+    // Open shop
+    const shopBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    shopBtn!.click();
+
+    // After refresh, size 1 button should be disabled
+    const size1Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='1']");
+    expect(size1Btn).not.toBeNull();
+    // Button should be disabled (visually and functionally)
+    // Clicking it should be a no-op
+    size1Btn!.click();
+
+    const afterState = game.__getRunState();
+    expect(afterState.owned).toHaveLength(initialOwned); // unchanged
+    expect(economy.getBalance()).toBe(2); // unchanged
+
+    await game.teardown();
+  });
+
+  it("HUD balance text updates after a purchase", async () => {
+    const economy = makeMockEconomy(50);
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    // Find balance display
+    const balanceEl = ctx.container.querySelector(
+      "[data-role='balance-display']",
+    );
+    expect(balanceEl).not.toBeNull();
+
+    // Check initial balance shown
+    expect(balanceEl!.textContent).toContain("50");
+
+    // Buy size 1
+    const shopBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    shopBtn!.click();
+
+    const size1Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='1']");
+    size1Btn!.click();
+
+    // Balance should now show 47
+    expect(balanceEl!.textContent).toContain("47");
 
     await game.teardown();
   });

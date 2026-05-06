@@ -91,6 +91,81 @@ describe("createEconomy — subscribe", () => {
   });
 });
 
+describe("createEconomy — spend", () => {
+  it("spend deducts from balance when sufficient funds; returns true", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 50);
+    const result = svc.spend("game-a", 20);
+    expect(result).toBe(true);
+    expect(svc.getBalance()).toBe(30);
+  });
+
+  it("spend returns false when balance < amount; no mutation", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 10);
+    const result = svc.spend("game-a", 20);
+    expect(result).toBe(false);
+    expect(svc.getBalance()).toBe(10); // unchanged
+  });
+
+  it("spend returns false when balance === 0; no mutation", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    const result = svc.spend("game-a", 1);
+    expect(result).toBe(false);
+    expect(svc.getBalance()).toBe(0);
+  });
+
+  it("spend deducts exactly the price (no under/over)", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 120);
+    svc.spend("game-a", 120);
+    expect(svc.getBalance()).toBe(0);
+  });
+
+  it("spend with amount <= 0 throws RangeError", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 50);
+    expect(() => svc.spend("game-a", 0)).toThrow(RangeError);
+    expect(() => svc.spend("game-a", -1)).toThrow(RangeError);
+  });
+
+  it("spend notifies subscribers with negative amount and new balance", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 100);
+
+    const events: EconomyEvent[] = [];
+    svc.subscribe((e) => events.push(e));
+
+    svc.spend("game-a", 30);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.amount).toBe(-30);
+    expect(events[0]!.newBalance).toBe(70);
+    expect(events[0]!.gameId).toBe("game-a");
+  });
+
+  it("failed spend does NOT notify subscribers", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 5);
+
+    const handler = vi.fn();
+    svc.subscribe(handler);
+
+    const result = svc.spend("game-a", 100);
+    expect(result).toBe(false);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("multiple sequential spends accumulate correctly", async () => {
+    const svc = await createEconomy({ persistence: makePersistence() });
+    svc.addYield("game-a", 50);
+    svc.spend("game-a", 10);
+    svc.spend("game-a", 10);
+    svc.spend("game-a", 10);
+    expect(svc.getBalance()).toBe(20);
+  });
+});
+
 describe("createEconomy — persistence across sessions", () => {
   it("reloading with same persistence returns the previous balance", async () => {
     const persistence = makePersistence();
