@@ -371,30 +371,28 @@ describe("commitActive", () => {
     expect(result.reason).toBeNull();
   });
 
-  // Realistic scenario: fills column 4 via repeated commitActive calls, then verifies top-out.
+  // Spawn-collision via pre-filled board — no commitActive loop needed so garbage
+  // cadence does not interfere with the top-out check.
   it("top-out parity — spawn-collision: both board end state fields set consistently", () => {
-    // Build a state where the active column is entirely full → spawn-collision
-    let state = makeRunState("seed-parity");
+    // Pre-fill all rows of column 4 so no empty row is available.
+    const boardArr = emptyBoardArr();
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      boardArr[r]![4] = { id: r + 1 };
+    }
+    const board = boardArr as unknown as Board;
     const active = {
       id: "std-1x1-p",
       cellCount: 1,
       cells: [{ dx: 0, dy: 0 }],
       effectId: "standard" as const,
     };
-    state = { ...state, active, activeColumn: 4 };
+    const state = {
+      ...makeRunState("seed-parity"),
+      board,
+      active,
+      activeColumn: 4,
+    };
 
-    // Fill column 4 completely (16 rows)
-    for (let i = 0; i < BOARD_ROWS; i++) {
-      const r = commitActive(state, stubRng);
-      state = r.state;
-      if (i < BOARD_ROWS - 1) {
-        // Respawn for next commit
-        state = { ...state, active, activeColumn: 4 };
-      }
-    }
-
-    // Now column 4 is full — one more commit should top out
-    state = { ...state, active, activeColumn: 4 };
     const result = commitActive(state, stubRng);
 
     expect(result.toppedOut).toBe(true);
@@ -512,5 +510,122 @@ describe("commitActive", () => {
     const result = commitActive(state, stubRng);
     expect(result.toppedOut).toBe(false);
     expect(result.state).toBe(state);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Garbage cadence integration via commitActive
+  // ---------------------------------------------------------------------------
+
+  it("after 8 commits the bottom row contains a garbage row and counter resets", () => {
+    const rng = makeRng("garbage-8");
+    const active = {
+      id: "std-1x1-gc",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    // Start from a fresh state with garbageDropsThisRound at 7 so the 8th commit triggers.
+    const state = {
+      ...makeRunState("garbage-8"),
+      active,
+      activeColumn: 0,
+      garbageDropsThisRound: 7,
+    };
+
+    // 8th commit: triggers garbage injection.
+    const result = commitActive(state, rng);
+    expect(result.toppedOut).toBe(false);
+
+    // Counter resets to 0.
+    expect(result.state.garbageDropsThisRound).toBe(0);
+
+    // Bottom row should have exactly GARBAGE_FILL_COUNT (6) non-null cells.
+    const bottomRow = result.state.board[BOARD_ROWS - 1]!;
+    const filledCount = bottomRow.filter((c) => c !== null).length;
+    // The garbage row has 6 cells; plus the 1 block we just committed at col 0
+    // which may also be in the bottom row after the shift. Actually the block
+    // was committed THEN the stack shifted up (garbage at bottom), so the block
+    // cell is now one row above the garbage row. Bottom row = garbage row only.
+    expect(filledCount).toBe(6);
+  });
+
+  it("garbage cells removed on row-clear — row containing garbage cells clears when full", () => {
+    const rng = makeRng("gc-row-clear");
+    // Build a board where the bottom row has BOARD_COLS - 1 garbage cells and
+    // 1 empty column, then place a block into the empty column to complete the row.
+    const boardArr = emptyBoardArr();
+    // Fill bottom row cols 1..7 with garbage cells
+    for (let c = 1; c < BOARD_COLS; c++) {
+      boardArr[BOARD_ROWS - 1]![c] = { id: -1, kind: "garbage" };
+    }
+    const board = boardArr as unknown as Board;
+
+    const active = {
+      id: "std-1x1-gcr",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const state = {
+      ...makeRunState("gc-row-clear"),
+      board,
+      active,
+      activeColumn: 0, // col 0 is the empty slot
+    };
+
+    const result = commitActive(state, rng);
+    expect(result.toppedOut).toBe(false);
+    // Row was cleared — bottom row should now be empty (all null).
+    const bottomRow = result.state.board[BOARD_ROWS - 1]!;
+    expect(bottomRow.every((c) => c === null)).toBe(true);
+    // clearedRowsThisRun should have incremented.
+    expect(result.state.clearedRowsThisRun).toBeGreaterThan(
+      state.clearedRowsThisRun,
+    );
+  });
+
+  it("top-out parity — garbage-shift top-out has the same RunState shape as spawn-collision top-out", () => {
+    // Spawn-collision shape: status=ended, endedReason=spawn-collision
+    const boardArr1 = emptyBoardArr();
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      boardArr1[r]![4] = { id: r + 1 };
+    }
+    const board1 = boardArr1 as unknown as Board;
+    const active = {
+      id: "std-1x1-par",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const spawnState = {
+      ...makeRunState("parity-spawn"),
+      board: board1,
+      active,
+      activeColumn: 4,
+    };
+    const spawnResult = commitActive(spawnState, makeRng("parity-spawn"));
+    expect(spawnResult.toppedOut).toBe(true);
+    expect(spawnResult.state.status).toBe("ended");
+    expect(spawnResult.state.endedReason).toBe("spawn-collision");
+
+    // Garbage-shift shape: inject with row 0 occupied.
+    const boardArr2 = emptyBoardArr();
+    boardArr2[0]![0] = { id: 1 }; // row 0 occupied → garbage-shift tops out
+    const board2 = boardArr2 as unknown as Board;
+    const garbageState = {
+      ...makeRunState("parity-garbage"),
+      board: board2,
+      active,
+      activeColumn: 3,
+      garbageDropsThisRound: 7, // next commit = 8th, triggers inject
+    };
+    const garbageResult = commitActive(garbageState, makeRng("parity-garbage"));
+    expect(garbageResult.toppedOut).toBe(true);
+    expect(garbageResult.state.status).toBe("ended");
+    expect(garbageResult.state.endedReason).toBe("garbage-shift");
+
+    // Both produce the same shape: { status: "ended", endedReason: string }
+    expect(typeof spawnResult.state.endedReason).toBe("string");
+    expect(typeof garbageResult.state.endedReason).toBe("string");
   });
 });
