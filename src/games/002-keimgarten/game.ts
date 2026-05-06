@@ -33,7 +33,7 @@ import {
 } from "./render/fusionOverlay.ts";
 import { priceFor, roll } from "./domain/shop.ts";
 import type { Size } from "./domain/shop.ts";
-import { fuse } from "./domain/fusion.ts";
+import { fuse, fusionCost } from "./domain/fusion.ts";
 
 export { manifest };
 
@@ -406,13 +406,16 @@ export const createKeimgartenGame = (): Game & {
     container.appendChild(balanceDiv);
     balanceDisplay = balanceDiv;
 
-    // Subscribe to economy changes to refresh balance display + shop overlay
+    // Subscribe to economy changes to refresh balance display + shop overlay + fusion overlay
     economyDisposer = economySvc.subscribe((event) => {
       if (balanceDisplay !== null) {
         balanceDisplay.textContent = String(event.newBalance);
       }
       if (shopOverlay !== null) {
         shopOverlay.refresh(runState, event.newBalance);
+      }
+      if (fusionOverlay !== null) {
+        fusionOverlay.refresh(runState, event.newBalance);
       }
     });
 
@@ -487,19 +490,30 @@ export const createKeimgartenGame = (): Game & {
     fusionOverlay = fusionOv;
 
     // Initial refresh
-    fusionOv.refresh(runState);
+    fusionOv.refresh(runState, economySvc.getBalance());
 
     // Wire button click → show overlay
     fusionBtn.addEventListener("click", () => {
-      fusionOv.refresh(runState);
+      fusionOv.refresh(runState, economySvc.getBalance());
       fusionOv.show();
     });
 
-    // Wire confirm: fuse → update state → persist
+    // Wire confirm: spend (if cost > 0) → fuse → update state → persist
     fusionOv.onConfirm = (a, b, target) => {
       if (rng === null) return;
+
+      const cost = fusionCost(target);
+      if (cost > 0) {
+        const spent = economySvc.spend("002-keimgarten", cost);
+        if (!spent) return; // insufficient balance — overlay stays open
+      }
+
       const result = fuse(runState, a, b, target, rng);
-      if (!result.success) return;
+      if (!result.success) {
+        // Defensive: refund if fuse rejected after spend
+        if (cost > 0) economySvc.addYield("002-keimgarten", cost);
+        return;
+      }
 
       runState = result.state;
 
@@ -540,11 +554,9 @@ export const createKeimgartenGame = (): Game & {
       }
 
       // Refresh overlays
-      fusionOv.refresh(runState);
+      fusionOv.refresh(runState, economySvc.getBalance());
       bestiaryOverlay?.refresh(runState);
-      if (economy !== null) {
-        shopOv.refresh(runState, economy.getBalance());
-      }
+      shopOv.refresh(runState, economySvc.getBalance());
 
       // Persist
       if (persistence !== null) {
@@ -566,7 +578,7 @@ export const createKeimgartenGame = (): Game & {
       // Refresh overlays
       shopOv.refresh(runState, economy.getBalance());
       bestiaryOverlay?.refresh(runState);
-      fusionOverlay?.refresh(runState);
+      fusionOverlay?.refresh(runState, economy.getBalance());
 
       // Add sprite for new creature
       if (pixiAvailable && stage !== null) {

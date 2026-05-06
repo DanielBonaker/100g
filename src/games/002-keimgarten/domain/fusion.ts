@@ -5,6 +5,15 @@ import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
 
 export type FusionTarget = 6 | 7 | 8 | 9;
 
+export const FUSION_COST: Record<FusionTarget, number> = {
+  6: 0,
+  7: 100,
+  8: 500,
+  9: 2000,
+};
+
+export const fusionCost = (target: FusionTarget): number => FUSION_COST[target];
+
 export interface FuseResult {
   readonly success: boolean;
   readonly state: RunState;

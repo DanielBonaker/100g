@@ -999,4 +999,378 @@ describe("Fusion button and overlay", () => {
 
     await game.teardown();
   });
+
+  it("size-6 fusion (free): economy.spend is NOT called, fusion still succeeds", async () => {
+    // Fresh game with persistence-seeded state and a mock economy that can spy on spend
+    const spendSpy = vi.fn().mockReturnValue(true);
+    const realEconomy = makeMockEconomy(2000);
+    const spyEconomy: Economy = {
+      ...realEconomy,
+      spend: spendSpy,
+    };
+    const idb2 = (await import("fake-indexeddb")).IDBFactory;
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const persistence2 = cp({ idb: new idb2(), dbName: "kg-fusion-cost-test" });
+
+    // Save a state with tier-6 unlocked and a valid 1+5 pair
+    const base = (await import("./domain/runState.ts")).makeRunState();
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const size1c = B.find((c) => c.tier === 1)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6] as number[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size1c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size1c.id, size5c.id],
+    };
+    await persistence2.save("keimgarten-run", preparedState);
+
+    const ctx2 = makeCtx(persistence2, undefined, spyEconomy);
+    const game2 = createKeimgartenGame();
+    await game2.init(ctx2);
+
+    // Open fusion overlay
+    const fusionBtn2 = ctx2.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn2.click();
+
+    const fusionOv2 = ctx2.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+
+    // Select target 6
+    fusionOv2
+      .querySelector<HTMLButtonElement>("[data-target-size='6']")!
+      .click();
+
+    // Select both inputs
+    fusionOv2
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv2
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    spendSpy.mockClear(); // clear any calls from shop/init
+
+    // Confirm fusion
+    fusionOv2
+      .querySelector<HTMLButtonElement>("[data-role='fusion-confirm']")!
+      .click();
+
+    // For size-6 (cost=0), economy.spend should NOT be called
+    expect(spendSpy).not.toHaveBeenCalled();
+
+    await game2.teardown();
+  });
+
+  it("size-7 fusion with sufficient balance: economy.spend called with 100, fusion succeeds", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-fusion-size7-ok" });
+
+    const spendSpy = vi
+      .fn()
+      .mockImplementation((gameId: string, amount: number) => {
+        void gameId;
+        void amount;
+        return true; // always succeeds
+      });
+    const realEconomy = makeMockEconomy(500);
+    const spyEconomy: Economy = {
+      ...realEconomy,
+      spend: spendSpy,
+    };
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size3c = B.find((c) => c.tier === 3)!;
+    const size4c = B.find((c) => c.tier === 4)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7] as number[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size3c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size4c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size3c.id, size4c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const ctx = makeCtx(persistence, undefined, spyEconomy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    spendSpy.mockClear(); // clear any init-time calls
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='7']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    const confirmBtn = fusionOv.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+
+    // economy.spend should have been called with 100
+    expect(spendSpy).toHaveBeenCalledWith("002-keimgarten", 100);
+
+    // Fusion succeeded: net -1 creature (2 consumed, 1 added)
+    const afterState = game.__getRunState();
+    const ids = afterState.owned.map((c) => c.instanceId);
+    expect(ids).not.toContain(0);
+    expect(ids).not.toContain(1);
+
+    await game.teardown();
+  });
+
+  it("size-7 fusion with insufficient balance (50 < 100): economy.spend NOT called for fusion, no state change", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-fusion-size7-fail" });
+
+    // Economy with balance=50 (insufficient for size-7 cost=100)
+    // spend returns false when insufficient
+    const spendSpy = vi.fn().mockReturnValue(false);
+    const economy: Economy = {
+      getBalance: () => 50,
+      addYield: vi.fn(),
+      spend: spendSpy,
+      subscribe: () => () => undefined,
+    };
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size3c = B.find((c) => c.tier === 3)!;
+    const size4c = B.find((c) => c.tier === 4)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7] as number[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size3c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size4c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size3c.id, size4c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const ctx = makeCtx(persistence, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const stateBeforeFusion = game.__getRunState();
+    const countBefore = stateBeforeFusion.owned.length;
+
+    spendSpy.mockClear();
+
+    // The confirm button should be DISABLED (balance=50 < cost=100)
+    // Open fusion overlay
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='7']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    const confirmBtn = fusionOv.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    // With balance=50 < cost=100, button must be DISABLED
+    expect(confirmBtn.disabled).toBe(true);
+
+    // Even if we force-click, no fusion happens (button is disabled)
+    // Verify no spend was called
+    expect(spendSpy).not.toHaveBeenCalled();
+
+    // State unchanged
+    const afterState = game.__getRunState();
+    expect(afterState.owned.length).toBe(countBefore);
+
+    await game.teardown();
+  });
+
+  it("size-9 fusion produces Vollkommen (creatureId 166)", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-fusion-size9" });
+
+    const realEconomy = makeMockEconomy(5000);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size4c = B.find((c) => c.tier === 4)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7, 8, 9] as number[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size4c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size4c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const ctx = makeCtx(persistence, undefined, realEconomy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='9']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    const confirmBtn = fusionOv.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+
+    // Output should be Vollkommen (id=166)
+    const afterState = game.__getRunState();
+    const newCreature = afterState.owned.find(
+      (c) => c.instanceId !== 0 && c.instanceId !== 1,
+    );
+    expect(newCreature).toBeDefined();
+    expect(newCreature!.creatureId).toBe(166);
+
+    await game.teardown();
+  });
 });
