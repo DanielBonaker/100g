@@ -1,4 +1,5 @@
 import type { RunState, OwnedCreature } from "./runState.ts";
+import { computeUnlockedTiers } from "./runState.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
 import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
 
@@ -59,12 +60,19 @@ export const roll = (
     ? state.uniqueOwnedIds
     : [...state.uniqueOwnedIds, picked.id].sort((a, b) => a - b);
 
+  // Maintain unlockedFusionTiers: owning a tier-N creature unlocks tier N+1
+  const unlockedFusionTiers = computeUnlockedTiers(
+    state.unlockedFusionTiers,
+    picked.tier,
+  );
+
   return {
     state: {
       ...state,
       owned: [...state.owned, newCreature],
       nextInstanceId: state.nextInstanceId + 1,
       uniqueOwnedIds,
+      unlockedFusionTiers,
     },
     drawn: newCreature,
   };

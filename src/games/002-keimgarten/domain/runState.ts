@@ -27,6 +27,12 @@ export interface RunState {
   readonly uniqueOwnedIds: readonly number[];
   /** Total cross-game currency already paid out for this save; used to compute delta on teardown. */
   readonly lastYieldPaid: number;
+  /**
+   * Fusion tier numbers (6-9) that have been unlocked. A tier N is unlocked
+   * the first time the player ever owns a creature of size N-1. Persisted as
+   * an array (not Set) for serialization. Sorted ascending.
+   */
+  readonly unlockedFusionTiers: readonly number[];
 }
 
 export const STARTER_INSTANCE_ID = 1;
@@ -52,7 +58,24 @@ export const makeRunState = (rngSeed?: string): RunState => ({
   totalTapsByCreatureId: {},
   uniqueOwnedIds: [0],
   lastYieldPaid: 0,
+  unlockedFusionTiers: [],
 });
+
+/**
+ * Given the current set of unlocked fusion tiers and a newly-acquired creature's
+ * tier, return the updated array. Owning a tier-N creature unlocks fusion tier
+ * N+1 (if N+1 is in {6,7,8,9}). Idempotent — duplicates are not added.
+ * Result is sorted ascending.
+ */
+export const computeUnlockedTiers = (
+  current: readonly number[],
+  newCreatureTier: number,
+): readonly number[] => {
+  const targetUnlock = newCreatureTier + 1;
+  if (targetUnlock < 6 || targetUnlock > 9) return current;
+  if (current.includes(targetUnlock)) return current;
+  return [...current, targetUnlock].sort((a, b) => a - b);
+};
 
 interface MaybeRunState {
   schemaVersion?: unknown;
@@ -63,6 +86,7 @@ interface MaybeRunState {
   totalTapsByCreatureId?: unknown;
   uniqueOwnedIds?: unknown;
   lastYieldPaid?: unknown;
+  unlockedFusionTiers?: unknown;
 }
 
 interface MaybeOwnedCreature {
@@ -116,6 +140,13 @@ export const isRunState = (value: unknown): value is RunState => {
   if (v.lastYieldPaid !== undefined && typeof v.lastYieldPaid !== "number") {
     return false;
   }
+  // unlockedFusionTiers is optional in saved data (migration: absent = [])
+  if (v.unlockedFusionTiers !== undefined) {
+    if (!Array.isArray(v.unlockedFusionTiers)) return false;
+    for (const item of v.unlockedFusionTiers as unknown[]) {
+      if (typeof item !== "number") return false;
+    }
+  }
   for (const item of v.owned as unknown[]) {
     if (typeof item !== "object" || item === null) return false;
     const c = item as MaybeOwnedCreature;
@@ -148,6 +179,13 @@ export const normalizeRunState = (value: unknown): RunState => {
       ? (v.uniqueOwnedIds as readonly number[])
       : [...new Set(v.owned.map((c) => c.creatureId))].sort((a, b) => a - b);
 
+  // Backfill unlockedFusionTiers when field is absent (migration)
+  const unlockedFusionTiers: readonly number[] =
+    Array.isArray(v.unlockedFusionTiers) &&
+    (v.unlockedFusionTiers as unknown[]).every((x) => typeof x === "number")
+      ? (v.unlockedFusionTiers as readonly number[])
+      : [];
+
   return {
     ...(value as RunState),
     totalTapsByCreatureId: isRecordNumberNumber(v.totalTapsByCreatureId)
@@ -155,5 +193,6 @@ export const normalizeRunState = (value: unknown): RunState => {
       : {},
     uniqueOwnedIds,
     lastYieldPaid: typeof v.lastYieldPaid === "number" ? v.lastYieldPaid : 0,
+    unlockedFusionTiers,
   };
 };

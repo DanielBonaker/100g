@@ -228,3 +228,35 @@ describe("roll — does not touch currency fields", () => {
     expect(stateAsRecord.gold).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// roll — unlockedFusionTiers update
+// ---------------------------------------------------------------------------
+
+describe("roll — unlockedFusionTiers", () => {
+  it("rolling size 5 adds 6 to unlockedFusionTiers", () => {
+    const state = makeRunState();
+    const rng = makeSeededRng(42);
+    // size=5 → tier 5 creature → unlocks tier 6
+    const { state: newState } = roll(state, 5, rng);
+    expect(newState.unlockedFusionTiers).toContain(6);
+  });
+
+  it("rolling size 1..4 does not change unlockedFusionTiers", () => {
+    for (const size of [1, 2, 3, 4] as const) {
+      const state = makeRunState();
+      const rng = makeSeededRng(42);
+      const { state: newState } = roll(state, size, rng);
+      expect(newState.unlockedFusionTiers).toEqual([]);
+    }
+  });
+
+  it("rolling size 5 twice does not duplicate tier 6 in unlockedFusionTiers", () => {
+    const state = makeRunState();
+    const rng = makeSeededRng(42);
+    const { state: s1 } = roll(state, 5, rng);
+    const { state: s2 } = roll(s1, 5, rng);
+    const count6 = s2.unlockedFusionTiers.filter((t) => t === 6).length;
+    expect(count6).toBe(1);
+  });
+});
