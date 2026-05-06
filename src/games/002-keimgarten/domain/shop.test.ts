@@ -223,7 +223,8 @@ describe("roll — does not touch currency fields", () => {
     const rng = makeSeededRng();
     const { state: newState } = roll(state, 1, rng);
     // RunState has no balance/gold field; verify neither is introduced
-    expect((newState as Record<string, unknown>).balance).toBeUndefined();
-    expect((newState as Record<string, unknown>).gold).toBeUndefined();
+    const stateAsRecord = newState as unknown as Record<string, unknown>;
+    expect(stateAsRecord.balance).toBeUndefined();
+    expect(stateAsRecord.gold).toBeUndefined();
   });
 });

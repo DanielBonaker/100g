@@ -328,6 +328,7 @@ const makeSpyEconomy = (): SpyEconomy => {
     addYieldSpy,
     getBalance: () => 0,
     addYield: addYieldSpy,
+    spend: () => false,
     subscribe: () => () => undefined,
   };
 };
