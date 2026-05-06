@@ -27,8 +27,13 @@ import {
   type BestiaryOverlay,
 } from "./render/bestiaryOverlay.ts";
 import { createShopOverlay, type ShopOverlay } from "./render/shopOverlay.ts";
+import {
+  createFusionOverlay,
+  type FusionOverlay,
+} from "./render/fusionOverlay.ts";
 import { priceFor, roll } from "./domain/shop.ts";
 import type { Size } from "./domain/shop.ts";
+import { fuse } from "./domain/fusion.ts";
 
 export { manifest };
 
@@ -87,6 +92,10 @@ export const createKeimgartenGame = (): Game & {
   let shopButton: HTMLButtonElement | null = null;
   let balanceDisplay: HTMLDivElement | null = null;
   let economyDisposer: (() => void) | null = null;
+
+  // Fusion overlay + button
+  let fusionOverlay: FusionOverlay | null = null;
+  let fusionButton: HTMLButtonElement | null = null;
 
   // ---------------------------------------------------------------------------
   // Nameplate + heart particle DOM overlay
@@ -446,6 +455,103 @@ export const createKeimgartenGame = (): Game & {
       shopOv.show();
     });
 
+    // ---------------------------------------------------------------------------
+    // Fusion button
+    // ---------------------------------------------------------------------------
+    const fusionBtn = document.createElement("button");
+    fusionBtn.dataset.role = "fusion-button";
+    fusionBtn.textContent = "Fusion";
+    fusionBtn.style.cssText = [
+      "position:absolute",
+      "bottom:4px",
+      "left:74px",
+      "min-width:60px",
+      "min-height:44px",
+      "background:rgba(60,20,80,0.85)",
+      "color:#fff",
+      "font-family:monospace",
+      "font-size:10px",
+      "border:1px solid #888",
+      "border-radius:4px",
+      "cursor:pointer",
+      "z-index:10",
+      "padding:4px 8px",
+      "box-sizing:border-box",
+    ].join(";");
+    container.appendChild(fusionBtn);
+    fusionButton = fusionBtn;
+
+    // Fusion overlay
+    const fusionOv = createFusionOverlay();
+    container.appendChild(fusionOv.element);
+    fusionOverlay = fusionOv;
+
+    // Initial refresh
+    fusionOv.refresh(runState);
+
+    // Wire button click → show overlay
+    fusionBtn.addEventListener("click", () => {
+      fusionOv.refresh(runState);
+      fusionOv.show();
+    });
+
+    // Wire confirm: fuse → update state → persist
+    fusionOv.onConfirm = (a, b, target) => {
+      if (rng === null) return;
+      const result = fuse(runState, a, b, target, rng);
+      if (!result.success) return;
+
+      runState = result.state;
+
+      // Remove sprites for consumed instances
+      if (pixiAvailable) {
+        pixiSprites.delete(a);
+        pixiSprites.delete(b);
+      } else {
+        fallbackSprites.delete(a);
+        fallbackSprites.delete(b);
+      }
+
+      // Add sprite for new creature
+      if (result.output !== null) {
+        if (pixiAvailable && stage !== null) {
+          const capturedStage = stage;
+          const output = result.output;
+          void (async () => {
+            const [{ createCreatureSprite }, pixiModule] = await Promise.all([
+              import("./render/creatureSprite.ts"),
+              import("pixi.js"),
+            ]);
+            const playContainer = capturedStage.play as {
+              addChild(child: unknown): void;
+            };
+            const sprite = createCreatureSprite(
+              output,
+              capturedStage.app,
+              pixiModule,
+            ) as { position: { set(x: number, y: number): void } };
+            sprite.position.set(output.position.x, output.position.y);
+            playContainer.addChild(sprite);
+            pixiSprites.set(output.instanceId, sprite);
+          })();
+        } else {
+          syncFallbackSprite(result.output);
+        }
+      }
+
+      // Refresh overlays
+      fusionOv.refresh(runState);
+      bestiaryOverlay?.refresh(runState);
+      if (economy !== null) {
+        shopOv.refresh(runState, economy.getBalance());
+      }
+
+      // Persist
+      if (persistence !== null) {
+        void persistence.save("keimgarten-run", runState, { debounceMs: 50 });
+      }
+    };
+
     // Wire size tap: spend → roll → update state
     shopOv.onSizeTap = (size: Size): void => {
       if (economy === null || rng === null) return;
@@ -460,6 +566,7 @@ export const createKeimgartenGame = (): Game & {
       // Refresh overlays
       shopOv.refresh(runState, economy.getBalance());
       bestiaryOverlay?.refresh(runState);
+      fusionOverlay?.refresh(runState);
 
       // Add sprite for new creature
       if (pixiAvailable && stage !== null) {
@@ -629,6 +736,16 @@ export const createKeimgartenGame = (): Game & {
     if (balanceDisplay !== null) {
       balanceDisplay.remove();
       balanceDisplay = null;
+    }
+
+    // Remove fusion button and overlay
+    if (fusionButton !== null) {
+      fusionButton.remove();
+      fusionButton = null;
+    }
+    if (fusionOverlay !== null) {
+      fusionOverlay.destroy();
+      fusionOverlay = null;
     }
 
     container = null;
