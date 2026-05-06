@@ -30,6 +30,7 @@ const makeCtx = (
       economy: economy ?? {
         getBalance: () => 0,
         addYield: () => undefined,
+        spend: () => false,
         subscribe: () => () => undefined,
       },
       achievements: {
@@ -442,6 +443,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const ctx = makeCtx(undefined, undefined, economy);
@@ -458,6 +460,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const idb = new IDBFactory();
@@ -484,6 +487,7 @@ describe("currency yield on teardown", () => {
     const economy: Economy = {
       getBalance: () => 0,
       addYield,
+      spend: () => false,
       subscribe: () => () => undefined,
     };
     const idb = new IDBFactory();

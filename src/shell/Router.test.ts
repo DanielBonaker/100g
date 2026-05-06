@@ -73,6 +73,16 @@ function makeFakeEconomy(initialBalance = 0): Economy & {
         h(event);
       }
     },
+    spend: (gameId, amount) => {
+      if (amount <= 0) return false;
+      if (balance < amount) return false;
+      balance -= amount;
+      const event = { gameId, amount: -amount, newBalance: balance };
+      for (const h of handlers) {
+        h(event);
+      }
+      return true;
+    },
     subscribe: (handler) => {
       handlers.push(handler);
       return () => {

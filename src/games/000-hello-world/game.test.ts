@@ -84,6 +84,7 @@ const makeCtx = (
       economy: overrides.economy ?? {
         getBalance: () => 0,
         addYield: () => undefined,
+        spend: () => false,
         subscribe: () => () => undefined,
       },
       achievements: overrides.achievements ?? {

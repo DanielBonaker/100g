@@ -68,6 +68,31 @@ export const createEconomy = async (opts: EconomyOptions): Promise<Economy> => {
       persist();
     },
 
+    spend(gameId: string, amount: number): boolean {
+      if (amount <= 0) {
+        throw new RangeError(
+          `spend amount must be > 0, got ${amount.toString()}`,
+        );
+      }
+      if (balance < amount) {
+        return false;
+      }
+
+      balance -= amount;
+
+      const event: EconomyEvent = {
+        gameId,
+        amount: -amount,
+        newBalance: balance,
+      };
+      for (const handler of [...subscribers]) {
+        handler(event);
+      }
+
+      persist();
+      return true;
+    },
+
     subscribe(handler: (event: EconomyEvent) => void): () => void {
       subscribers.push(handler);
       return () => {

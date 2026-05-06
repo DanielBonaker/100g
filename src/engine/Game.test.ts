@@ -25,6 +25,7 @@ const stubServices = (): ServiceRegistry => ({
   economy: {
     getBalance: () => 0,
     addYield: () => undefined,
+    spend: () => false,
     subscribe: () => () => undefined,
   },
   achievements: {

@@ -75,6 +75,7 @@ const makeCtx = (
       economy: {
         getBalance: () => 0,
         addYield: () => undefined,
+        spend: () => false,
         subscribe: () => () => undefined,
       },
       achievements: {
