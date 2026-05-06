@@ -11,4 +11,5 @@ export interface Block {
   readonly cellCount: number;
   readonly cells: readonly BlockCellOffset[];
   readonly effectId: EffectId;
+  readonly displayName?: string;
 }
