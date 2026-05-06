@@ -628,4 +628,29 @@ describe("commitActive", () => {
     expect(typeof spawnResult.state.endedReason).toBe("string");
     expect(typeof garbageResult.state.endedReason).toBe("string");
   });
+
+  // ---------------------------------------------------------------------------
+  // Hold-swap lock reset — after a successful commit, holdSwapLockedThisBlock
+  // must be reset to false so the new active block can be swapped once.
+  // ---------------------------------------------------------------------------
+
+  it("resets holdSwapLockedThisBlock to false after a successful commit", () => {
+    const base = makeRunState("seed-hold-lock-reset");
+    const active = {
+      id: "std-1x1-hold-lock",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    // Start with the lock set (simulates having already swapped this block)
+    const state = {
+      ...base,
+      active,
+      activeColumn: 3,
+      holdSwapLockedThisBlock: true,
+    };
+    const result = commitActive(state, stubRng);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state.holdSwapLockedThisBlock).toBe(false);
+  });
 });

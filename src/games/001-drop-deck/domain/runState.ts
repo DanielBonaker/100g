@@ -28,8 +28,13 @@ export interface RunState {
   readonly deck: readonly Block[];
   readonly drawQueue: readonly Block[];
   readonly active: Block | null;
-  readonly hold: Block | null; // placeholder for #28 (hold-swap)
-  readonly holdSwapLockedThisBlock: boolean; // placeholder for #28
+  // hold: primary hold slot (slot 0). hold2: secondary slot (slot 1) — only
+  // relevant when the "spare-pocket" passive is active. We use two distinct
+  // fields rather than an array so TypeScript's noUncheckedIndexedAccess rule
+  // does not force null-checks on every access and the shape is explicit.
+  readonly hold: Block | null;
+  readonly hold2: Block | null; // slot 1, used only when spare-pocket is active
+  readonly holdSwapLockedThisBlock: boolean;
 
   // Progress
   readonly clearedRowsThisRun: number;
@@ -83,6 +88,7 @@ export const makeRunState = (rngSeed?: string): RunState => {
     drawQueue,
     active,
     hold: null,
+    hold2: null,
     holdSwapLockedThisBlock: false,
     clearedRowsThisRun: 0,
     clearedRowsThisRound: 0,
@@ -149,6 +155,10 @@ export const isRunState = (value: unknown): value is RunState => {
   if (typeof v.gold !== "number") return false;
   if (typeof v.garbageDropsThisRound !== "number") return false;
   if (typeof v.holdSwapLockedThisBlock !== "boolean") return false;
+  // hold2: null or a block-shaped object (introduced in #28)
+  // We accept missing (undefined) as null for forward compatibility.
+  if (v.hold2 !== null && v.hold2 !== undefined && typeof v.hold2 !== "object")
+    return false;
   if (
     v.endedReason !== null &&
     v.endedReason !== "spawn-collision" &&

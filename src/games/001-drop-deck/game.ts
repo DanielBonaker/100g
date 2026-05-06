@@ -9,6 +9,7 @@ import {
   commitActive,
   exitShop,
 } from "./domain/board.ts";
+import { swapHold, holdCapacity } from "./domain/hold.ts";
 import type { RunState } from "./domain/board.ts";
 import { isRunState } from "./domain/runState.ts";
 import { makeRng } from "./domain/rng.ts";
@@ -217,6 +218,74 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
 
   // Shop overlay — mounted only when status === "in-shop"
   let shopEl: HTMLDivElement | null = null;
+
+  // Hold overlay — always visible while status === "running" or "ended"
+  let holdEl: HTMLDivElement | null = null;
+
+  // ---------------------------------------------------------------------------
+  // holdBlockLabel — returns a display string for a held block.
+  // ---------------------------------------------------------------------------
+  const holdBlockLabel = (
+    block: ReturnType<typeof makeRunState>["hold"],
+  ): string => {
+    if (block === null) return "Empty";
+    return block.displayName
+      ? `${block.displayName} (${block.effectId})`
+      : block.id;
+  };
+
+  // ---------------------------------------------------------------------------
+  // syncHoldOverlay — idempotent reconciler for the hold button(s).
+  // Mounts a hold UI element outside the board; updates text + disabled state.
+  // ---------------------------------------------------------------------------
+  const syncHoldOverlay = (): void => {
+    if (container === null) return;
+
+    const btnStyle =
+      "min-width:44px;min-height:44px;padding:6px 10px;" +
+      "background:#2a1a6a;color:#fff;border:1px solid #9060c0;" +
+      "cursor:pointer;font-family:monospace;font-size:13px;display:block;width:100%;";
+
+    // Mount wrapper if not yet present
+    if (holdEl === null) {
+      holdEl = document.createElement("div");
+      holdEl.setAttribute("data-role", "hold-ui");
+      holdEl.style.cssText =
+        "position:absolute;top:4px;right:4px;display:flex;flex-direction:column;gap:4px;z-index:5;";
+      container.appendChild(holdEl);
+    }
+
+    // Rebuild hold buttons
+    while (holdEl.firstChild) holdEl.removeChild(holdEl.firstChild);
+
+    // Slot 0 button (always present)
+    const btn0 = document.createElement("button");
+    btn0.setAttribute("data-action", "hold-swap");
+    btn0.style.cssText = btnStyle;
+    btn0.textContent = `Hold: ${holdBlockLabel(runState.hold)}`;
+    btn0.disabled =
+      runState.holdSwapLockedThisBlock || runState.status !== "running";
+    btn0.addEventListener("click", () => {
+      runState = swapHold(runState, 0);
+      syncHoldOverlay();
+    });
+    holdEl.appendChild(btn0);
+
+    // Slot 1 button — only when spare-pocket passive is active
+    if (holdCapacity(runState) >= 2) {
+      const btn1 = document.createElement("button");
+      btn1.setAttribute("data-action", "hold-swap-2");
+      btn1.style.cssText = btnStyle;
+      btn1.textContent = `Hold2: ${holdBlockLabel(runState.hold2)}`;
+      btn1.disabled =
+        runState.holdSwapLockedThisBlock || runState.status !== "running";
+      btn1.addEventListener("click", () => {
+        runState = swapHold(runState, 1);
+        syncHoldOverlay();
+      });
+      holdEl.appendChild(btn1);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // syncShopOverlay — idempotent reconciler for the shop DOM overlay.
@@ -434,6 +503,9 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
 
     const rng = makeRng(runState.rngState);
 
+    // Sync hold overlay on init (always visible during running/ended)
+    syncHoldOverlay();
+
     // Sync shop overlay on init (handles restored in-shop state)
     syncShopOverlay(rng);
 
@@ -444,6 +516,9 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       const prevCommitted = runState.committedBlocks;
       const result = commitActive(runState, rng);
       runState = result.state;
+
+      // Sync hold overlay after any commit (lock resets; new active block available)
+      syncHoldOverlay();
 
       // Sync shop overlay if the commit triggered a round-end → in-shop transition
       syncShopOverlay(rng);
@@ -499,6 +574,11 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       dispose();
     }
     disposers.length = 0;
+
+    if (holdEl !== null && container !== null) {
+      if (holdEl.parentNode === container) container.removeChild(holdEl);
+      holdEl = null;
+    }
 
     if (shopEl !== null && container !== null) {
       if (shopEl.parentNode === container) container.removeChild(shopEl);
