@@ -1,11 +1,11 @@
 // 100g — bootstrap entry point.
 // Wires persistence → economy → achievements → engine → router.
 
-import type { Audio } from "./engine/services.ts";
 import { createPersistence } from "./services/persistence/index.ts";
 import { createEconomy } from "./services/economy/index.ts";
 import { createAchievements } from "./services/achievements/index.ts";
 import { createInput } from "./services/input/index.ts";
+import { createAudio } from "./services/audio/index.ts";
 import { createEngine } from "./engine/Engine.ts";
 import { createRouter } from "./shell/Router.ts";
 import {
@@ -21,15 +21,6 @@ import {
   manifest as keimgartenManifest,
 } from "./games/002-keimgarten/index.ts";
 
-// Temporary no-op audio stub — real service ships with issue #30.
-function makeNoOpAudio(): Audio {
-  return {
-    enable: () => undefined,
-    setMuted: () => undefined,
-    play: () => undefined,
-  };
-}
-
 void (async () => {
   const root = document.querySelector<HTMLDivElement>("#app");
   if (root === null) throw new Error("missing #app root element");
@@ -38,14 +29,22 @@ void (async () => {
   const economy = await createEconomy({ persistence });
   const achievements = await createAchievements({ persistence });
   const input = createInput(root);
+  const audio = await createAudio({ persistence });
 
   const services = {
     persistence,
     economy,
     achievements,
     input,
-    audio: makeNoOpAudio(),
+    audio,
   };
+
+  // Autoplay-safe: AudioContext is created only on the first user gesture.
+  // The listener is registered with { once: true } so it fires at most once.
+  const enableAudioOnce = (): void => {
+    void audio.enable();
+  };
+  root.addEventListener("pointerdown", enableAudioOnce, { once: true });
 
   const engine = createEngine(root, { services });
   engine.register(dropDeckManifest, () => createDropDeckGame());

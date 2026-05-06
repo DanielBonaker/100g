@@ -89,6 +89,7 @@ const makeCtx = (
         enable: () => undefined,
         setMuted: () => undefined,
         play: () => undefined,
+        isMuted: () => false,
       },
     },
     rng: {
@@ -358,6 +359,7 @@ const makeCtxWithSpies = (
         enable: () => undefined,
         setMuted: () => undefined,
         play: () => undefined,
+        isMuted: () => false,
       },
     },
     rng: {
@@ -1390,6 +1392,250 @@ describe("Hold button UI", () => {
 
     const holdBtn2 = ctx.container.querySelector("[data-action='hold-swap-2']");
     expect(holdBtn2).not.toBeNull();
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audio trigger tests
+// ---------------------------------------------------------------------------
+
+type SpyAudio = GameContext["services"]["audio"] & {
+  playSpy: ReturnType<typeof vi.fn>;
+};
+
+const makeSpyAudio = (): SpyAudio => {
+  const playSpy = vi.fn();
+  return {
+    playSpy,
+    enable: () => undefined,
+    setMuted: () => undefined,
+    play: playSpy,
+    isMuted: () => false,
+  };
+};
+
+const makeCtxWithAudioSpy = (
+  input: FakeInput["inputService"],
+  audio: SpyAudio,
+  persistence?: Persistence,
+): GameContext => {
+  const container = document.createElement("div");
+  container.style.width = "375px";
+  container.style.height = "667px";
+  document.body.appendChild(container);
+  return {
+    container,
+    services: {
+      persistence: persistence ?? {
+        save: (_key, _value, _opts?) => Promise.resolve(),
+        load: () => Promise.resolve(null),
+        delete: () => Promise.resolve(),
+      },
+      economy: {
+        getBalance: () => 0,
+        addYield: () => undefined,
+        spend: () => false,
+        subscribe: () => () => undefined,
+      },
+      achievements: {
+        unlock: () => undefined,
+        getUnlocked: () => [],
+        isUnlocked: () => false,
+        subscribe: () => () => undefined,
+      },
+      input,
+      audio,
+    },
+    rng: {
+      next: () => 0.5,
+      int: (min) => min,
+      fork: function () {
+        return this;
+      },
+      state: "test",
+    },
+    dimensions: { width: 375, height: 667, devicePixelRatio: 1 },
+  };
+};
+
+type EffectId = "standard" | "ghost" | "melt" | "impact" | "rain";
+
+const makeEffectBlock = (effectId: EffectId): RunState["active"] & object => ({
+  id: `test-1x1-${effectId}`,
+  cellCount: 1,
+  cells: [{ dx: 0, dy: 0 }],
+  effectId,
+});
+
+describe("Drop Deck audio triggers — block-land sounds", () => {
+  it("standard block tap → dd-block-land", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-standard" });
+
+    const preState: RunState = {
+      ...makeRunState("audio-std-seed"),
+      active: makeEffectBlock("standard"),
+      activeColumn: 4,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-block-land");
+
+    await game.teardown();
+  });
+
+  it("impact block tap → dd-impact-boom", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-impact" });
+
+    const preState: RunState = {
+      ...makeRunState("audio-impact-seed"),
+      active: makeEffectBlock("impact"),
+      activeColumn: 4,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-impact-boom");
+
+    await game.teardown();
+  });
+
+  it("melt block tap → dd-melt-splash", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-melt" });
+
+    const preState: RunState = {
+      ...makeRunState("audio-melt-seed"),
+      active: makeEffectBlock("melt"),
+      activeColumn: 4,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-melt-splash");
+
+    await game.teardown();
+  });
+
+  it("rain block tap → dd-rain-patter", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-rain" });
+
+    const preState: RunState = {
+      ...makeRunState("audio-rain-seed"),
+      active: makeEffectBlock("rain"),
+      activeColumn: 4,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-rain-patter");
+
+    await game.teardown();
+  });
+
+  it("ghost block tap → dd-block-land (fallback)", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-ghost" });
+
+    const preState: RunState = {
+      ...makeRunState("audio-ghost-seed"),
+      active: makeEffectBlock("ghost"),
+      activeColumn: 4,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-block-land");
+
+    await game.teardown();
+  });
+});
+
+describe("Drop Deck audio triggers — row-clear sound", () => {
+  it("tap that clears a row also triggers dd-row-clear", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-row-clear" });
+
+    // 7 of 8 columns filled in bottom row → tap col 4 clears the row
+    const preState = makeStateWithAlmostFullBottomRow(0);
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    fake.fireTap({ x: 100, y: 300 });
+
+    const soundIds = (audio.playSpy.mock.calls as [string][]).map(
+      (args) => args[0],
+    );
+    expect(soundIds).toContain("dd-row-clear");
+
+    await game.teardown();
+  });
+});
+
+describe("Drop Deck audio triggers — shop ambient", () => {
+  it("entering in-shop status triggers dd-shop-ambient", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "audio-shop" });
+
+    // Restore a state already in in-shop — syncShopOverlay on init fires the sound
+    const preState: RunState = {
+      ...makeRunState("audio-shop-seed"),
+      status: "in-shop",
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const audio = makeSpyAudio();
+    const ctx = makeCtxWithAudioSpy(fake.inputService, audio, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    expect(audio.playSpy).toHaveBeenCalledWith("dd-shop-ambient");
 
     await game.teardown();
   });
