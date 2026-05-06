@@ -15,11 +15,17 @@ A 100-day public game challenge is a magnet for IP claims if not careful. Tetris
 
 ## Asset registry
 
-| Asset        | Source | Author | License | Acquired |
-| ------------ | ------ | ------ | ------- | -------- |
-| _(none yet)_ |        |        |         |          |
+| Asset                                     | Source                                                                    | Author                          | License                    | Acquired   |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ------------------------------- | -------------------------- | ---------- |
+| Drop Deck / Keimgarten audio (all sounds) | Synthesised via WebAudio API oscillators in `src/services/audio/audio.ts` | Original (no third-party asset) | N/A — generated at runtime | 2026-05-06 |
 
 Add rows as assets land.
+
+## Synthesised audio note
+
+Issue #30 uses pure oscillator-based tones (no audio files, no third-party samples).
+Real CC0/CC-BY sample assets may replace these tones in a future polish issue.
+When they do, each asset must be registered here with source URL, author, license, and date.
 
 ## Consequences
 
