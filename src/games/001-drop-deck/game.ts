@@ -233,7 +233,8 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
 
     // Wire input handlers
     const tapDisposer = ctx.services.input.onTap(() => {
-      if (runState.status === "ended") return;
+      // Tap is a no-op when the run is over or the shop is open (shop UI in #25)
+      if (runState.status === "ended" || runState.status === "in-shop") return;
       const prevCommitted = runState.committedBlocks;
       const result = commitActive(runState, rng);
       runState = result.state;
@@ -259,7 +260,7 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     });
 
     const dragDisposer = ctx.services.input.onDrag((e: InputDragEvent) => {
-      if (runState.status === "ended") return;
+      if (runState.status === "ended" || runState.status === "in-shop") return;
       if (e.phase === "start") {
         dragStartCol = runState.activeColumn;
         dragAccumPx = 0;

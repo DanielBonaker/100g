@@ -4,7 +4,7 @@ import type { Block } from "./block.ts";
 import { makeRng } from "./rng.ts";
 import { buildStarterDeck, shuffle } from "./deck.ts";
 
-export type RunStatus = "running" | "ended";
+export type RunStatus = "running" | "in-shop" | "ended";
 
 export interface RunState {
   // Board geometry
@@ -107,7 +107,8 @@ export const isRunState = (value: unknown): value is RunState => {
   // scalar fields
   if (typeof v.activeColumn !== "number") return false;
   if (v.activeColumn < 0 || v.activeColumn >= BOARD_COLS) return false;
-  if (v.status !== "running" && v.status !== "ended") return false;
+  if (v.status !== "running" && v.status !== "in-shop" && v.status !== "ended")
+    return false;
   if (typeof v.committedBlocks !== "number" || v.committedBlocks < 0)
     return false;
   if (typeof v.nextCellId !== "number" || v.nextCellId < 1) return false;

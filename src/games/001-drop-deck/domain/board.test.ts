@@ -451,4 +451,66 @@ describe("commitActive", () => {
     const fromLive = rng.next();
     expect(fromRestored).toBe(fromLive);
   });
+
+  // ---------------------------------------------------------------------------
+  // Round-end integration — commitActive calls checkRoundEnd after each commit
+  // ---------------------------------------------------------------------------
+
+  it("transitions to in-shop when the commit clears the round target", () => {
+    // Round 1 target = 5 rows. Pre-set clearedRowsThisRound = 4 so that one
+    // commit which clears 1 row pushes it to 5 — hitting the threshold.
+    // Fill the bottom row (row 15) leaving col 0 empty; place a 1×1 block at
+    // col 0 to complete and clear that row (+1 cleared row).
+    const boardArr = emptyBoardArr();
+    for (let c = 1; c < BOARD_COLS; c++) {
+      boardArr[BOARD_ROWS - 1]![c] = { id: 9000 + c };
+    }
+    const board = boardArr as unknown as Board;
+    const active = {
+      id: "std-1x1-round",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const base = makeRunState("seed-round-end");
+    const state = {
+      ...base,
+      board,
+      active,
+      activeColumn: 0,
+      round: 1,
+      // Already cleared 4 rows; this commit will clear 1 more → total 5 = target
+      clearedRowsThisRound: 4,
+      gold: 0,
+      highestRoundReached: 0,
+    };
+
+    const result = commitActive(state, stubRng);
+    expect(result.toppedOut).toBe(false);
+    // Should have cleared 1 row → clearedRowsThisRound 4+1=5 = target → in-shop
+    expect(result.state.status).toBe("in-shop");
+    // gold: lump(1)=3 + interest(0)=0 = 3
+    expect(result.state.gold).toBe(3);
+    // highestRoundReached advances
+    expect(result.state.highestRoundReached).toBe(1);
+  });
+
+  it("is a no-op (returns state unchanged) when status is in-shop", () => {
+    const base = makeRunState("seed-shop");
+    const active = {
+      id: "std-1x1-shop",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const state = {
+      ...base,
+      status: "in-shop" as const,
+      active,
+      activeColumn: 3,
+    };
+    const result = commitActive(state, stubRng);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state).toBe(state);
+  });
 });

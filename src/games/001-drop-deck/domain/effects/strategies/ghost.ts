@@ -12,8 +12,8 @@ export const ghostStrategy: EffectStrategy = {
   resolve(ctx: PlaceContext): PlaceResult {
     const { state, block, column } = ctx;
 
-    // No-op after top-out
-    if (state.status === "ended") {
+    // No-op after top-out or while in the shop
+    if (state.status === "ended" || state.status === "in-shop") {
       return { state, toppedOut: false, reason: null };
     }
 
