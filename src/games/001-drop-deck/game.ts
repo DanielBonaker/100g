@@ -13,8 +13,18 @@ import type { RunState } from "./domain/board.ts";
 import { isRunState } from "./domain/runState.ts";
 import { makeRng } from "./domain/rng.ts";
 import { manifest } from "./manifest.ts";
-import { purchaseBooster, pickFromBooster } from "./domain/shop.ts";
+import {
+  purchaseBooster,
+  pickFromBooster,
+  purchaseRemove,
+  pickRemove,
+  acceptPassive,
+  declinePassive,
+  REMOVE_COST,
+  MIN_DECK_SIZE,
+} from "./domain/shop.ts";
 import type { BoosterTier } from "./domain/shop.ts";
+import { findPassive } from "./catalog/passives.ts";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -239,7 +249,7 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       "cursor:pointer;font-family:monospace;font-size:14px;";
 
     if (runState.shopOffer !== null) {
-      // ---- Pick screen: show 3 block options ----
+      // ---- Booster pick screen: show 3 block options ----
       const heading = document.createElement("div");
       heading.textContent = `Pick a block (${runState.shopOffer.tier}):`;
       shopEl.appendChild(heading);
@@ -257,8 +267,62 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
         });
         shopEl.appendChild(btn);
       }
+    } else if (runState.removeOffer !== null) {
+      // ---- Remove pick screen: show up to 3 block options to remove ----
+      const heading = document.createElement("div");
+      heading.textContent = "Remove a block from your deck:";
+      shopEl.appendChild(heading);
+
+      for (const block of runState.removeOffer.options) {
+        const btn = document.createElement("button");
+        btn.setAttribute("data-remove-pick", block.id);
+        btn.style.cssText = btnStyle;
+        btn.textContent = block.displayName
+          ? `${block.displayName} (${block.effectId})`
+          : block.id;
+        btn.addEventListener("click", () => {
+          runState = pickRemove(runState, block.id);
+          syncShopOverlay(rng);
+        });
+        shopEl.appendChild(btn);
+      }
+    } else if (runState.passiveOffer !== null) {
+      // ---- Passive offer screen ----
+      const passive = findPassive(runState.passiveOffer.passive);
+      const heading = document.createElement("div");
+      heading.textContent = "Passive offer:";
+      shopEl.appendChild(heading);
+
+      if (passive !== null) {
+        const info = document.createElement("div");
+        info.setAttribute("data-passive-info", passive.id);
+        info.textContent = `${passive.title} — ${passive.description} ($${String(runState.passiveOffer.cost)})`;
+        shopEl.appendChild(info);
+      }
+
+      const acceptBtn = document.createElement("button");
+      acceptBtn.setAttribute("data-action", "accept-passive");
+      acceptBtn.style.cssText = btnStyle;
+      acceptBtn.textContent = `Accept ($${String(runState.passiveOffer.cost)})`;
+      acceptBtn.disabled = runState.gold < runState.passiveOffer.cost;
+      acceptBtn.addEventListener("click", () => {
+        runState = acceptPassive(runState);
+        syncShopOverlay(rng);
+      });
+      shopEl.appendChild(acceptBtn);
+
+      const declineBtn = document.createElement("button");
+      declineBtn.setAttribute("data-action", "decline-passive");
+      declineBtn.style.cssText =
+        btnStyle + "background:#1a1a1a;border-color:#808080;";
+      declineBtn.textContent = "Decline";
+      declineBtn.addEventListener("click", () => {
+        runState = declinePassive(runState);
+        syncShopOverlay(rng);
+      });
+      shopEl.appendChild(declineBtn);
     } else {
-      // ---- Tier button screen ----
+      // ---- Main shop screen: tier buttons + remove + skip ----
       const heading = document.createElement("div");
       heading.textContent = "Shop — buy a booster:";
       shopEl.appendChild(heading);
@@ -274,10 +338,35 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
         });
         shopEl.appendChild(btn);
       }
-    }
 
-    // Exit Shop button is always visible in the shop (not on pick screen)
-    if (runState.shopOffer === null) {
+      // Remove button — disabled when deck too small or not enough gold
+      const deckSize = runState.deck.length + runState.drawQueue.length;
+      const removeDisabled =
+        deckSize <= MIN_DECK_SIZE || runState.gold < REMOVE_COST;
+      const removeBtn = document.createElement("button");
+      removeBtn.setAttribute("data-action", "purchase-remove");
+      removeBtn.style.cssText = btnStyle;
+      removeBtn.textContent = `Remove ($${String(REMOVE_COST)})`;
+      removeBtn.disabled = removeDisabled;
+      removeBtn.addEventListener("click", () => {
+        runState = purchaseRemove(runState, rng);
+        syncShopOverlay(rng);
+      });
+      shopEl.appendChild(removeBtn);
+
+      // Skip button — calls exitShop directly
+      const skipBtn = document.createElement("button");
+      skipBtn.setAttribute("data-action", "skip-shop");
+      skipBtn.style.cssText =
+        btnStyle + "background:#1a1a1a;border-color:#808080;";
+      skipBtn.textContent = "Skip";
+      skipBtn.addEventListener("click", () => {
+        runState = exitShop(runState);
+        syncShopOverlay(rng);
+      });
+      shopEl.appendChild(skipBtn);
+
+      // Exit Shop button (explicit label for non-skip exit after purchases)
       const exitBtn = document.createElement("button");
       exitBtn.setAttribute("data-action", "exit-shop");
       exitBtn.style.cssText =

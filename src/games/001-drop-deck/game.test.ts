@@ -15,7 +15,7 @@ import {
 import type { RunState } from "./domain/runState.ts";
 import { IDBFactory } from "fake-indexeddb";
 import { createPersistence } from "../../services/persistence/index.ts";
-import { MAX_DECK_SIZE } from "./domain/shop.ts";
+import { MAX_DECK_SIZE, MIN_DECK_SIZE, REMOVE_COST } from "./domain/shop.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal GameContext with a controllable input service
@@ -895,6 +895,337 @@ describe("Shop UI — max deck size guard", () => {
 
     // No offer set because deck is full
     expect(game.__getRunState().shopOffer).toBeNull();
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shop UI — Remove slot
+// ---------------------------------------------------------------------------
+
+const makeShopBlock = (n: number): RunState["deck"][number] => ({
+  id: `1-test-ui-block-${String(n)}-standard`,
+  cellCount: 1,
+  cells: [{ dx: 0, dy: 0 }],
+  effectId: "standard" as const,
+});
+
+describe("Shop UI — Remove button visible in main shop screen", () => {
+  it("renders a purchase-remove button when in-shop", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-remove-btn",
+    });
+
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const preState: RunState = {
+      ...makeRunState("shop-ui-remove-seed"),
+      status: "in-shop",
+      gold: 20,
+      deck,
+      drawQueue: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const removeBtn = shopEl.querySelector("[data-action='purchase-remove']");
+    expect(removeBtn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("Remove button is disabled when gold < REMOVE_COST", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-remove-disabled-gold",
+    });
+
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const preState: RunState = {
+      ...makeRunState("shop-ui-remove-low-gold"),
+      status: "in-shop",
+      gold: REMOVE_COST - 1,
+      deck,
+      drawQueue: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const removeBtn = shopEl.querySelector<HTMLButtonElement>(
+      "[data-action='purchase-remove']",
+    )!;
+    expect(removeBtn.disabled).toBe(true);
+
+    await game.teardown();
+  });
+
+  it("Remove button is disabled when deck size <= MIN_DECK_SIZE", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-remove-min-deck",
+    });
+
+    const deck = Array.from({ length: MIN_DECK_SIZE }, (_, i) =>
+      makeShopBlock(i),
+    );
+    const preState: RunState = {
+      ...makeRunState("shop-ui-remove-min-deck-seed"),
+      status: "in-shop",
+      gold: 20,
+      deck,
+      drawQueue: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const removeBtn = shopEl.querySelector<HTMLButtonElement>(
+      "[data-action='purchase-remove']",
+    )!;
+    expect(removeBtn.disabled).toBe(true);
+
+    await game.teardown();
+  });
+
+  it("clicking Remove button with sufficient gold/deck shows remove-pick screen", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-remove-click",
+    });
+
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const preState: RunState = {
+      ...makeRunState("shop-ui-remove-click-seed"),
+      status: "in-shop",
+      gold: 20,
+      deck,
+      drawQueue: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const removeBtn = shopEl.querySelector<HTMLButtonElement>(
+      "[data-action='purchase-remove']",
+    )!;
+    removeBtn.click();
+
+    // After clicking, remove pick buttons should appear
+    const pickBtns = shopEl.querySelectorAll("[data-remove-pick]");
+    expect(pickBtns.length).toBeGreaterThan(0);
+    expect(pickBtns.length).toBeLessThanOrEqual(3);
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shop UI — Skip button
+// ---------------------------------------------------------------------------
+
+describe("Shop UI — Skip button", () => {
+  it("renders a skip-shop button in the main shop screen", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-skip-btn" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-skip-seed"),
+      status: "in-shop",
+      gold: 0,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const skipBtn = shopEl.querySelector("[data-action='skip-shop']");
+    expect(skipBtn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("clicking Skip transitions status to running", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-skip-click",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-skip-click-seed"),
+      status: "in-shop",
+      gold: 0,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const skipBtn = shopEl.querySelector<HTMLElement>(
+      "[data-action='skip-shop']",
+    )!;
+    skipBtn.click();
+
+    expect(game.__getRunState().status).toBe("running");
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shop UI — Passive offer screen
+// ---------------------------------------------------------------------------
+
+describe("Shop UI — Passive offer screen", () => {
+  it("renders accept/decline buttons when passiveOffer is set", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-passive-offer",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-passive-seed"),
+      status: "in-shop",
+      gold: 20,
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const acceptBtn = shopEl.querySelector("[data-action='accept-passive']");
+    const declineBtn = shopEl.querySelector("[data-action='decline-passive']");
+    expect(acceptBtn).not.toBeNull();
+    expect(declineBtn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("accept button is disabled when gold < cost", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-passive-disabled",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-passive-disabled-seed"),
+      status: "in-shop",
+      gold: 2,
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const acceptBtn = shopEl.querySelector<HTMLButtonElement>(
+      "[data-action='accept-passive']",
+    )!;
+    expect(acceptBtn.disabled).toBe(true);
+
+    await game.teardown();
+  });
+
+  it("clicking accept adds passive and clears passiveOffer", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-passive-accept",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-passive-accept-seed"),
+      status: "in-shop",
+      gold: 20,
+      passives: [],
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const acceptBtn = shopEl.querySelector<HTMLElement>(
+      "[data-action='accept-passive']",
+    )!;
+    acceptBtn.click();
+
+    const after = game.__getRunState();
+    expect(after.passiveOffer).toBeNull();
+    expect(after.passives).toContain("skippers-bonus");
+    expect(after.gold).toBe(15); // 20 - 5
+
+    await game.teardown();
+  });
+
+  it("clicking decline clears passiveOffer", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-passive-decline",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-passive-decline-seed"),
+      status: "in-shop",
+      gold: 20,
+      passiveOffer: { passive: "row-rebate", cost: 5 },
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const declineBtn = shopEl.querySelector<HTMLElement>(
+      "[data-action='decline-passive']",
+    )!;
+    declineBtn.click();
+
+    expect(game.__getRunState().passiveOffer).toBeNull();
 
     await game.teardown();
   });

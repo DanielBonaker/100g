@@ -513,7 +513,9 @@ describe("generatePassiveOffer", () => {
       if (offer !== null) break;
     }
     expect(offer).not.toBeNull();
-    expect(base.passives).not.toContain(offer.passive);
+    if (offer !== null) {
+      expect(base.passives).not.toContain(offer.passive);
+    }
   });
 
   it("returns null when all passives owned", () => {
