@@ -1,4 +1,6 @@
 import type { RunState, OwnedCreature } from "./runState.ts";
+import { computeUnlockedTiers } from "./runState.ts";
+import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
 
 // 0.4 s × 60 ticks/s = 24 ticks for hop duration
 const HOP_TICKS = 24;
@@ -44,11 +46,19 @@ export const applyAction = (
       ? state.uniqueOwnedIds
       : [...state.uniqueOwnedIds, action.creatureId].sort((a, b) => a - b);
 
+    // Maintain unlockedFusionTiers: owning a tier-N creature unlocks tier N+1
+    const creatureTier = BESTIARY[action.creatureId]?.tier ?? 0;
+    const unlockedFusionTiers = computeUnlockedTiers(
+      state.unlockedFusionTiers,
+      creatureTier,
+    );
+
     return {
       ...state,
       owned: [...state.owned, newCreature],
       nextInstanceId: state.nextInstanceId + 1,
       uniqueOwnedIds,
+      unlockedFusionTiers,
     };
   }
 
