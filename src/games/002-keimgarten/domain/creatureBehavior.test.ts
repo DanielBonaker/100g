@@ -45,7 +45,6 @@ function makeCreatureInState(
     position: { x: 24, y: 28 },
     state,
     stateUntil,
-    totalTaps: 0,
     facing: 1,
     seed: 42,
     walkTargetX: 30,
