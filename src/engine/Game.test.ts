@@ -43,6 +43,7 @@ const stubServices = (): ServiceRegistry => ({
     enable: () => undefined,
     setMuted: () => undefined,
     play: () => undefined,
+    isMuted: () => false,
   },
 });
 

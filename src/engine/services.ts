@@ -39,9 +39,10 @@ export interface Achievements {
 }
 
 export interface Audio {
-  enable(): void;
+  enable(): void | Promise<void>;
   setMuted(muted: boolean): void;
   play(soundId: string): void;
+  isMuted(): boolean;
 }
 
 export interface ServiceRegistry {

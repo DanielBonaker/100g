@@ -1,5 +1,5 @@
 import type { Game, GameContext, Persistence } from "../../engine/Game.ts";
-import type { Achievements, Economy } from "../../engine/services.ts";
+import type { Achievements, Audio, Economy } from "../../engine/services.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type { DragEvent as InputDragEvent } from "../../services/input/types.ts";
 import {
@@ -37,6 +37,18 @@ const BOARD_PIXEL_H = BOARD_ROWS * CELL_SIZE;
 
 // Each full cell-width of drag maps to one column shift
 const DRAG_COL_THRESHOLD = CELL_SIZE;
+
+// ---------------------------------------------------------------------------
+// Audio — effectId → soundId mapping
+// ---------------------------------------------------------------------------
+
+const EFFECT_SOUND: Readonly<Record<string, string>> = {
+  standard: "dd-block-land",
+  ghost: "dd-block-land",
+  melt: "dd-melt-splash",
+  impact: "dd-impact-boom",
+  rain: "dd-rain-patter",
+};
 
 // ---------------------------------------------------------------------------
 // Achievement IDs
@@ -214,6 +226,7 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   let persistence: Persistence | null = null;
   let achievements: Achievements | null = null;
   let economy: Economy | null = null;
+  let audio: Audio | null = null;
   const disposers: Disposer[] = [];
 
   // Shop overlay — mounted only when status === "in-shop"
@@ -303,10 +316,11 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       return;
     }
 
-    // Mount overlay if not present
+    // Mount overlay if not present — fire ambient sound on first mount
     if (shopEl === null) {
       shopEl = buildShopEl();
       container.appendChild(shopEl);
+      audio?.play("dd-shop-ambient");
     }
 
     // Clear and rebuild contents
@@ -458,6 +472,7 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     persistence = ctx.services.persistence;
     achievements = ctx.services.achievements;
     economy = ctx.services.economy;
+    audio = ctx.services.audio;
 
     // Attempt to restore a prior run from persistence.
     // The isRunState guard rejects old-format saves (missing new fields from
@@ -513,7 +528,12 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     const tapDisposer = ctx.services.input.onTap(() => {
       // Tap is a no-op when the run is over or the shop is open (shop UI in #25)
       if (runState.status === "ended" || runState.status === "in-shop") return;
+
+      // Capture the active block's effectId before commit — it will be replaced.
+      const activeEffectId = runState.active?.effectId ?? "standard";
       const prevCommitted = runState.committedBlocks;
+      const prevCleared = runState.clearedRowsThisRun;
+
       const result = commitActive(runState, rng);
       runState = result.state;
 
@@ -535,6 +555,17 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
           emitYield(runState, economy);
         }
         return;
+      }
+
+      // Fire block-land sound based on effectId (only on successful commit)
+      if (runState.committedBlocks > prevCommitted) {
+        const soundId = EFFECT_SOUND[activeEffectId] ?? "dd-block-land";
+        audio?.play(soundId);
+
+        // Fire row-clear sound if any rows were cleared this commit
+        if (runState.clearedRowsThisRun > prevCleared) {
+          audio?.play("dd-row-clear");
+        }
       }
 
       // Check achievement thresholds after a successful commit

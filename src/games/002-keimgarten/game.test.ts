@@ -53,6 +53,7 @@ const makeCtx = (
         enable: () => undefined,
         setMuted: () => undefined,
         play: () => undefined,
+        isMuted: () => false,
       },
     },
     rng: {
