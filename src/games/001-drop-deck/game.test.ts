@@ -1230,3 +1230,165 @@ describe("Shop UI — Passive offer screen", () => {
     await game.teardown();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hold button UI
+// ---------------------------------------------------------------------------
+
+describe("Hold button UI", () => {
+  it("renders a hold button ([data-action='hold-swap']) when status is running", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn = ctx.container.querySelector("[data-action='hold-swap']");
+    expect(holdBtn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("hold button has at least 44px width and height (mobile hit target)", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn = ctx.container.querySelector<HTMLElement>(
+      "[data-action='hold-swap']",
+    )!;
+    const minWidth = parseInt(holdBtn.style.minWidth, 10);
+    const minHeight = parseInt(holdBtn.style.minHeight, 10);
+    expect(minWidth).toBeGreaterThanOrEqual(44);
+    expect(minHeight).toBeGreaterThanOrEqual(44);
+
+    await game.teardown();
+  });
+
+  it("tapping hold button swaps active block into hold", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const before = game.__getRunState();
+    expect(before.active).not.toBeNull();
+    expect(before.hold).toBeNull();
+
+    const holdBtn = ctx.container.querySelector<HTMLElement>(
+      "[data-action='hold-swap']",
+    )!;
+    holdBtn.click();
+
+    const after = game.__getRunState();
+    // Active was stowed into hold
+    expect(after.hold).not.toBeNull();
+    // Lock is set after the swap
+    expect(after.holdSwapLockedThisBlock).toBe(true);
+
+    await game.teardown();
+  });
+
+  it("hold button shows the held block display name after a swap", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn = ctx.container.querySelector<HTMLElement>(
+      "[data-action='hold-swap']",
+    )!;
+
+    // Before swap: button should show placeholder text
+    const textBefore = holdBtn.textContent;
+    // After swap: text should reflect the held block
+    holdBtn.click();
+
+    const after = game.__getRunState();
+    const heldBlock = after.hold;
+    expect(heldBlock).not.toBeNull();
+
+    // Render to pick up state
+    game.render();
+
+    const holdBtn2 = ctx.container.querySelector<HTMLElement>(
+      "[data-action='hold-swap']",
+    )!;
+    const textAfter = holdBtn2.textContent;
+    // Text must change (now showing held block info vs empty placeholder)
+    expect(textAfter).not.toBe(textBefore);
+
+    await game.teardown();
+  });
+
+  it("hold button appears visually disabled when holdSwapLockedThisBlock is true", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "hold-locked-test" });
+
+    const preState: RunState = {
+      ...makeRunState("hold-locked-seed"),
+      holdSwapLockedThisBlock: true,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-action='hold-swap']",
+    )!;
+    expect(holdBtn.disabled).toBe(true);
+
+    await game.teardown();
+  });
+
+  it("second click on hold button after swap is a no-op (locked)", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn = ctx.container.querySelector<HTMLElement>(
+      "[data-action='hold-swap']",
+    )!;
+
+    // First click: stow
+    holdBtn.click();
+    const afterFirst = game.__getRunState();
+    expect(afterFirst.holdSwapLockedThisBlock).toBe(true);
+    const holdAfterFirst = afterFirst.hold;
+
+    // Second click: locked — no change
+    holdBtn.click();
+    const afterSecond = game.__getRunState();
+    expect(afterSecond.hold).toStrictEqual(holdAfterFirst);
+
+    await game.teardown();
+  });
+
+  it("renders a second hold button ([data-action='hold-swap-2']) when spare-pocket is active", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "hold-spare-pocket-test",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("hold-spare-pocket-seed"),
+      passives: ["spare-pocket"],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const holdBtn2 = ctx.container.querySelector("[data-action='hold-swap-2']");
+    expect(holdBtn2).not.toBeNull();
+
+    await game.teardown();
+  });
+});

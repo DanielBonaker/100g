@@ -269,11 +269,13 @@ export const commitActive = (
   const drawn = draw(garbage.state, rng);
   // Persist rng.state AFTER all RNG operations (shuffle/draw) so cross-session
   // restore replays from the correct position rather than replaying from start.
+  // Also reset holdSwapLockedThisBlock so the newly active block can be swapped.
   const afterDraw: RunState = {
     ...drawn.state,
     active: drawn.drew,
     activeColumn: SPAWN_COL,
     rngState: rng.state,
+    holdSwapLockedThisBlock: false,
   };
 
   // Check whether this commit cleared enough rows to end the round.
