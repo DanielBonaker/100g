@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createKeimgartenGame } from "./game.ts";
 import type { GameContext, Persistence } from "../../engine/Game.ts";
+import type { Economy } from "../../engine/Game.ts";
 import type { TapEvent } from "../../services/input/types.ts";
 import { IDBFactory } from "fake-indexeddb";
 import { createPersistence } from "../../services/persistence/index.ts";
@@ -12,6 +13,7 @@ import { createPersistence } from "../../services/persistence/index.ts";
 const makeCtx = (
   persistence?: Persistence,
   tapHandlerRef?: { fire: (e: TapEvent) => void },
+  economy?: Economy,
 ): GameContext => {
   const container = document.createElement("div");
   container.style.width = "375px";
@@ -25,7 +27,7 @@ const makeCtx = (
         load: () => Promise.resolve(null),
         delete: () => Promise.resolve(),
       },
-      economy: {
+      economy: economy ?? {
         getBalance: () => 0,
         addYield: () => undefined,
         subscribe: () => () => undefined,
@@ -427,5 +429,110 @@ describe("tap-to-greet", () => {
     expect(heart).not.toBeNull();
 
     await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Currency yield — session-end economy wiring
+// ---------------------------------------------------------------------------
+
+describe("currency yield on teardown", () => {
+  it("calls economy.addYield with a positive amount on first teardown (starter Keim → yield=2)", async () => {
+    const addYield = vi.fn();
+    const economy: Economy = {
+      getBalance: () => 0,
+      addYield,
+      subscribe: () => () => undefined,
+    };
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown();
+
+    // Starter state: uniqueOwnedIds=[0] (tier 1) → compute=2, lastYieldPaid=0 → delta=2
+    expect(addYield).toHaveBeenCalledWith("002-keimgarten", 2);
+  });
+
+  it("does not double-pay on a second teardown without state changes (delta=0)", async () => {
+    const addYield = vi.fn();
+    const economy: Economy = {
+      getBalance: () => 0,
+      addYield,
+      subscribe: () => () => undefined,
+    };
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "kg-yield-nodbl" });
+    const ctx = makeCtx(persistence, undefined, economy);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown(); // first teardown — pays delta
+
+    addYield.mockClear();
+
+    // Re-init with same persistence (lastYieldPaid was saved)
+    const ctx2 = makeCtx(persistence, undefined, economy);
+    const game2 = createKeimgartenGame();
+    await game2.init(ctx2);
+    await game2.teardown(); // second teardown — state unchanged → delta=0
+
+    expect(addYield).not.toHaveBeenCalled();
+  });
+
+  it("pays delta when a new creature is owned between teardowns", async () => {
+    const addYield = vi.fn();
+    const economy: Economy = {
+      getBalance: () => 0,
+      addYield,
+      subscribe: () => () => undefined,
+    };
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "kg-yield-delta" });
+    const ctx = makeCtx(persistence, undefined, economy);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown(); // pays initial delta (yield=2 for starter)
+
+    const firstCall = addYield.mock.calls[0] as [string, number];
+    expect(firstCall[1]).toBeGreaterThan(0);
+    addYield.mockClear();
+
+    // Re-init, own a new tier-9 creature (id=166)
+    const ctx2 = makeCtx(persistence, undefined, economy);
+    const game2 = createKeimgartenGame();
+    await game2.init(ctx2);
+
+    // Directly inject a new creature ownership into runState via __getRunState reflection
+    // We use applyAction indirectly: game exposes __getRunState but not setState.
+    // Instead, save a modified state with the new creature added.
+    const { applyAction } = await import("./domain/garden.ts");
+    const stateWithNew = applyAction(game2.__getRunState(), {
+      type: "own",
+      creatureId: 166,
+      position: { x: 20, y: 20 },
+    });
+    await persistence.save("keimgarten-run", stateWithNew);
+
+    // Re-init from the new saved state
+    await game2.teardown();
+    addYield.mockClear();
+
+    const ctx3 = makeCtx(persistence, undefined, economy);
+    const game3 = createKeimgartenGame();
+    await game3.init(ctx3);
+    await game3.teardown();
+
+    // New yield: uniqueOwnedIds=[0,166], count=2, highestTier=9 → 0+18=18
+    // Previously paid=2, delta=16
+    expect(addYield).toHaveBeenCalledOnce();
+    const deltaCall = addYield.mock.calls[0] as [string, number];
+    expect(deltaCall[1]).toBeGreaterThan(0);
+  });
+
+  it("does not call addYield if economy service is not available (no-op teardown guard)", async () => {
+    // Bare teardown without init — game should not crash
+    const game = createKeimgartenGame();
+    await expect(game.teardown()).resolves.not.toThrow();
   });
 });

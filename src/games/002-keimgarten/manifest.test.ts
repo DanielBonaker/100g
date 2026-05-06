@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { manifest } from "./manifest.ts";
+import { makeRunState } from "./domain/runState.ts";
 
 describe("Keimgarten manifest", () => {
   it("has correct game id", () => {
@@ -15,13 +16,13 @@ describe("Keimgarten manifest", () => {
     expect(new Set(ids).size).toBe(3);
   });
 
-  it("currencyYield returns 0", () => {
-    // Cast to satisfy the generic RunState parameter — yield is always 0 in this slice.
-    expect(
-      manifest.currencyYield(
-        {} as Parameters<typeof manifest.currencyYield>[0],
-      ),
-    ).toBe(0);
+  it("currencyYield is deterministic and non-negative for a fresh RunState", () => {
+    // Fresh state: uniqueOwnedIds=[0] (starter Keim, tier 1) → compute = 0 + 1*2 = 2
+    const state = makeRunState();
+    const result = manifest.currencyYield(state);
+    expect(result).toBeGreaterThanOrEqual(0);
+    expect(result).toBe(manifest.currencyYield(state)); // deterministic
+    expect(result).toBe(2); // formula: floor(1/10) + 1*2 = 0 + 2 = 2
   });
 
   it("has a non-empty title", () => {

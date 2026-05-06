@@ -1,5 +1,6 @@
 import type { GameManifest } from "../../engine/Game.ts";
 import type { RunState } from "./domain/runState.ts";
+import { compute } from "./domain/currencyYield.ts";
 
 export const manifest: GameManifest<RunState> = {
   id: "002-keimgarten",
@@ -21,6 +22,5 @@ export const manifest: GameManifest<RunState> = {
       criterion: "Observe a creature in nap state.",
     },
   ],
-  // No yield in this slice; formula ships in a later issue.
-  currencyYield: () => 0,
+  currencyYield: compute,
 };
