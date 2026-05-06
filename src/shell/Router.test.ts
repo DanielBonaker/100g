@@ -2,17 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Engine } from "../engine/Engine.ts";
-import type { GameManifest } from "../engine/Game.ts";
 import type { Economy } from "../services/economy/index.ts";
 import type { Achievements } from "../services/achievements/index.ts";
-import type { RouterOptions } from "./Router.ts";
+import type { GameEntry, RouterOptions } from "./Router.ts";
 import { createRouter } from "./Router.ts";
 
 // ---------------------------------------------------------------------------
 // Test doubles
 // ---------------------------------------------------------------------------
 
-function makeManifest(id: string, title: string): GameManifest {
+function makeManifest(id: string, title: string): GameEntry {
   return {
     id,
     title,
@@ -21,7 +20,6 @@ function makeManifest(id: string, title: string): GameManifest {
       { id: "a2", title: "Ach Two", criterion: "c2" },
       { id: "a3", title: "Ach Three", criterion: "c3" },
     ],
-    currencyYield: () => 0,
   };
 }
 
@@ -34,30 +32,29 @@ function makeFakeEngine(): Engine & {
   let stopCalls = 0;
   let lastStartId: string | null = null;
 
-  const engine: Engine = {
-    register: () => undefined,
-    start: (id: string) => {
+  const harness = {
+    register: (): void => undefined,
+    start: (id: string): Promise<void> => {
       startCalls++;
       lastStartId = id;
       return Promise.resolve();
     },
-    stop: () => {
+    stop: (): Promise<void> => {
       stopCalls++;
       return Promise.resolve();
     },
-  };
-
-  return Object.assign(engine, {
-    get startCalls() {
+    get startCalls(): number {
       return startCalls;
     },
-    get stopCalls() {
+    get stopCalls(): number {
       return stopCalls;
     },
-    get lastStartId() {
+    get lastStartId(): string | null {
       return lastStartId;
     },
-  });
+  };
+
+  return harness;
 }
 
 function makeFakeEconomy(initialBalance = 0): Economy & {
@@ -164,20 +161,20 @@ function makeFakeWindow(): Pick<
 const MANIFEST_A = makeManifest("001-alpha", "Alpha Game");
 const MANIFEST_B = makeManifest("002-beta", "Beta Game");
 
-function makeOpts(overrides: Partial<RouterOptions> = {}): RouterOptions & {
-  engine: ReturnType<typeof makeFakeEngine>;
-  economy: ReturnType<typeof makeFakeEconomy>;
-  fakeWindow: ReturnType<typeof makeFakeWindow>;
-} {
-  const engine =
-    overrides.engine !== undefined
-      ? (overrides.engine as ReturnType<typeof makeFakeEngine>)
-      : makeFakeEngine();
-  const economy =
-    overrides.economy !== undefined
-      ? (overrides.economy as ReturnType<typeof makeFakeEconomy>)
-      : makeFakeEconomy(42);
-  const achievements = overrides.achievements ?? makeFakeAchievements();
+interface TestOpts extends RouterOptions {
+  readonly engine: ReturnType<typeof makeFakeEngine>;
+  readonly economy: ReturnType<typeof makeFakeEconomy>;
+  readonly fakeWindow: ReturnType<typeof makeFakeWindow>;
+}
+
+function makeOpts(
+  engineOverride?: ReturnType<typeof makeFakeEngine>,
+  economyOverride?: ReturnType<typeof makeFakeEconomy>,
+  achievementsOverride?: Achievements,
+): TestOpts {
+  const engine = engineOverride ?? makeFakeEngine();
+  const economy = economyOverride ?? makeFakeEconomy(42);
+  const achievements = achievementsOverride ?? makeFakeAchievements();
   const fakeWindow = makeFakeWindow();
 
   return {
@@ -187,7 +184,6 @@ function makeOpts(overrides: Partial<RouterOptions> = {}): RouterOptions & {
     registeredGames: [{ manifest: MANIFEST_A }, { manifest: MANIFEST_B }],
     window: fakeWindow,
     fakeWindow,
-    ...overrides,
   };
 }
 
@@ -418,7 +414,7 @@ describe("Router — HUD", () => {
 
   it("HUD reflects initial balance", () => {
     const economy = makeFakeEconomy(100);
-    const opts = makeOpts({ economy });
+    const opts = makeOpts(undefined, economy);
     const router = createRouter(root, opts);
 
     const hud = root.querySelector("[data-role='hud']");
@@ -428,7 +424,7 @@ describe("Router — HUD", () => {
 
   it("HUD updates when economy.addYield is called", () => {
     const economy = makeFakeEconomy(50);
-    const opts = makeOpts({ economy });
+    const opts = makeOpts(undefined, economy);
     const router = createRouter(root, opts);
 
     economy.addYield("001-alpha", 25);
@@ -440,7 +436,7 @@ describe("Router — HUD", () => {
 
   it("HUD shows game title when on a game route", () => {
     const economy = makeFakeEconomy(10);
-    const opts = makeOpts({ economy });
+    const opts = makeOpts(undefined, economy);
     const router = createRouter(root, opts);
     router.navigate("/games/001-alpha");
 
@@ -451,7 +447,7 @@ describe("Router — HUD", () => {
 
   it("HUD does not show game title on picker route", () => {
     const economy = makeFakeEconomy(10);
-    const opts = makeOpts({ economy });
+    const opts = makeOpts(undefined, economy);
     const router = createRouter(root, opts);
 
     const hud = root.querySelector("[data-role='hud']");
@@ -500,7 +496,7 @@ describe("Router — achievements route", () => {
     const achievements = makeFakeAchievements({
       "001-alpha": ["a1"],
     });
-    const opts = makeOpts({ achievements });
+    const opts = makeOpts(undefined, undefined, achievements);
     const router = createRouter(root, opts);
     router.navigate("/achievements");
 
@@ -633,7 +629,7 @@ describe("Router — destroy", () => {
 
   it("destroy() stops reacting to economy events", () => {
     const economy = makeFakeEconomy(0);
-    const opts = makeOpts({ economy });
+    const opts = makeOpts(undefined, economy);
     const router = createRouter(root, opts);
     router.destroy();
 

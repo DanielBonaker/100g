@@ -5,7 +5,7 @@ import type { Game, GameManifest, SeededRng, ServiceRegistry } from "./Game.ts";
 // ---------------------------------------------------------------------------
 
 export interface Engine {
-  register(manifest: GameManifest, factory: () => Game): void;
+  register<T>(manifest: GameManifest<T>, factory: () => Game): void;
   start(gameId: string): Promise<void>;
   stop(): Promise<void>;
 }
@@ -103,9 +103,11 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
     fixedTickMs = DEFAULT_FIXED_TICK_MS,
   } = opts;
 
+  // GameManifest<never> is the widest receiver: any GameManifest<T> is assignable
+  // because currencyYield's parameter position is contravariant.
   const registry = new Map<
     string,
-    { manifest: GameManifest; factory: () => Game }
+    { manifest: GameManifest<never>; factory: () => Game }
   >();
 
   // Runtime state
@@ -154,7 +156,7 @@ export function createEngine(rootEl: HTMLElement, opts: EngineOptions): Engine {
 
   // -- Engine interface implementation --
 
-  function register(manifest: GameManifest, factory: () => Game): void {
+  function register<T>(manifest: GameManifest<T>, factory: () => Game): void {
     if (registry.has(manifest.id)) {
       throw new Error(`Engine: game id "${manifest.id}" is already registered`);
     }
