@@ -8,6 +8,7 @@ import type { SeededRng } from "../../../engine/Game.ts";
 import { resolveEffect } from "./effects/dispatcher.ts";
 import { draw } from "./deck.ts";
 import { checkRoundEnd } from "./round.ts";
+import { tick as garbageTick } from "./garbage.ts";
 
 // ---------------------------------------------------------------------------
 // Re-export RunState from runState.ts for backward compatibility.
@@ -254,8 +255,18 @@ export const commitActive = (
     };
   }
 
+  // Tick the garbage counter; may inject a garbage row and cause top-out.
+  const garbage = garbageTick(result.state, rng);
+  if (garbage.toppedOut) {
+    return {
+      state: garbage.state,
+      toppedOut: true,
+      reason: "garbage-shift",
+    };
+  }
+
   // Draw the next block from the queue
-  const drawn = draw(result.state, rng);
+  const drawn = draw(garbage.state, rng);
   // Persist rng.state AFTER all RNG operations (shuffle/draw) so cross-session
   // restore replays from the correct position rather than replaying from start.
   const afterDraw: RunState = {
