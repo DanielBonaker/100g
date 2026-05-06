@@ -7,11 +7,14 @@ import {
   BOARD_COLS,
   BOARD_ROWS,
   commitActive,
+  exitShop,
 } from "./domain/board.ts";
 import type { RunState } from "./domain/board.ts";
 import { isRunState } from "./domain/runState.ts";
 import { makeRng } from "./domain/rng.ts";
 import { manifest } from "./manifest.ts";
+import { purchaseBooster, pickFromBooster } from "./domain/shop.ts";
+import type { BoosterTier } from "./domain/shop.ts";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -162,6 +165,31 @@ const emitYield = (state: RunState, economy: Economy): void => {
 };
 
 // ---------------------------------------------------------------------------
+// Shop UI helpers
+// ---------------------------------------------------------------------------
+
+const BOOSTER_TIERS: readonly BoosterTier[] = ["small", "medium", "large"];
+const BOOSTER_LABELS: Record<BoosterTier, string> = {
+  small: "Small $2",
+  medium: "Medium $5",
+  large: "Large $10",
+};
+
+// Build the shop overlay DOM node. Returns it unmounted — caller appends.
+// The overlay is re-rendered on every relevant state change by
+// syncShopOverlay below.
+const buildShopEl = (): HTMLDivElement => {
+  const el = document.createElement("div");
+  el.setAttribute("data-role", "shop");
+  el.style.cssText =
+    "position:absolute;top:0;left:0;width:100%;height:100%;" +
+    "background:rgba(10,10,20,0.92);display:flex;flex-direction:column;" +
+    "align-items:center;justify-content:center;gap:12px;color:#fff;" +
+    "font-family:monospace;z-index:10;";
+  return el;
+};
+
+// ---------------------------------------------------------------------------
 // Game factory
 // ---------------------------------------------------------------------------
 
@@ -176,6 +204,92 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   let achievements: Achievements | null = null;
   let economy: Economy | null = null;
   const disposers: Disposer[] = [];
+
+  // Shop overlay — mounted only when status === "in-shop"
+  let shopEl: HTMLDivElement | null = null;
+
+  // ---------------------------------------------------------------------------
+  // syncShopOverlay — idempotent reconciler for the shop DOM overlay.
+  // Mounts the overlay when in-shop, removes it when not.
+  // Re-renders content to reflect current shopOffer (tier buttons vs pick screen).
+  // ---------------------------------------------------------------------------
+  const syncShopOverlay = (rng: ReturnType<typeof makeRng>): void => {
+    if (container === null) return;
+
+    if (runState.status !== "in-shop") {
+      if (shopEl !== null) {
+        if (shopEl.parentNode === container) container.removeChild(shopEl);
+        shopEl = null;
+      }
+      return;
+    }
+
+    // Mount overlay if not present
+    if (shopEl === null) {
+      shopEl = buildShopEl();
+      container.appendChild(shopEl);
+    }
+
+    // Clear and rebuild contents
+    while (shopEl.firstChild) shopEl.removeChild(shopEl.firstChild);
+
+    const btnStyle =
+      "min-width:44px;min-height:44px;padding:8px 16px;" +
+      "background:#2a2a6a;color:#fff;border:1px solid #6060c0;" +
+      "cursor:pointer;font-family:monospace;font-size:14px;";
+
+    if (runState.shopOffer !== null) {
+      // ---- Pick screen: show 3 block options ----
+      const heading = document.createElement("div");
+      heading.textContent = `Pick a block (${runState.shopOffer.tier}):`;
+      shopEl.appendChild(heading);
+
+      for (const block of runState.shopOffer.options) {
+        const btn = document.createElement("button");
+        btn.setAttribute("data-pick", block.id);
+        btn.style.cssText = btnStyle;
+        btn.textContent = block.displayName
+          ? `${block.displayName} (${block.effectId})`
+          : block.id;
+        btn.addEventListener("click", () => {
+          runState = pickFromBooster(runState, block);
+          syncShopOverlay(rng);
+        });
+        shopEl.appendChild(btn);
+      }
+    } else {
+      // ---- Tier button screen ----
+      const heading = document.createElement("div");
+      heading.textContent = "Shop — buy a booster:";
+      shopEl.appendChild(heading);
+
+      for (const tier of BOOSTER_TIERS) {
+        const btn = document.createElement("button");
+        btn.setAttribute("data-booster", tier);
+        btn.style.cssText = btnStyle;
+        btn.textContent = BOOSTER_LABELS[tier];
+        btn.addEventListener("click", () => {
+          runState = purchaseBooster(runState, tier, rng);
+          syncShopOverlay(rng);
+        });
+        shopEl.appendChild(btn);
+      }
+    }
+
+    // Exit Shop button is always visible in the shop (not on pick screen)
+    if (runState.shopOffer === null) {
+      const exitBtn = document.createElement("button");
+      exitBtn.setAttribute("data-action", "exit-shop");
+      exitBtn.style.cssText =
+        btnStyle + "background:#1a1a1a;border-color:#808080;";
+      exitBtn.textContent = "Exit Shop";
+      exitBtn.addEventListener("click", () => {
+        runState = exitShop(runState);
+        syncShopOverlay(rng);
+      });
+      shopEl.appendChild(exitBtn);
+    }
+  };
 
   // Track drag state for column snapping
   let dragStartCol = 0;
@@ -231,6 +345,9 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
 
     const rng = makeRng(runState.rngState);
 
+    // Sync shop overlay on init (handles restored in-shop state)
+    syncShopOverlay(rng);
+
     // Wire input handlers
     const tapDisposer = ctx.services.input.onTap(() => {
       // Tap is a no-op when the run is over or the shop is open (shop UI in #25)
@@ -238,6 +355,9 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       const prevCommitted = runState.committedBlocks;
       const result = commitActive(runState, rng);
       runState = result.state;
+
+      // Sync shop overlay if the commit triggered a round-end → in-shop transition
+      syncShopOverlay(rng);
 
       // Commit-save: debounced 50 ms. Only fires when a new cell was placed
       // (not a top-out or out-of-bounds no-op).
@@ -290,6 +410,11 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       dispose();
     }
     disposers.length = 0;
+
+    if (shopEl !== null && container !== null) {
+      if (shopEl.parentNode === container) container.removeChild(shopEl);
+      shopEl = null;
+    }
 
     if (pixiApp !== null) {
       pixiApp.destroy({ removeView: true });
