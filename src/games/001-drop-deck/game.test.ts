@@ -574,6 +574,44 @@ describe("Game achievements — dd-deck-20 trigger", () => {
   });
 });
 
+describe("Game input — tap is no-op in-shop", () => {
+  it("tap during in-shop status does not commit or save", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "in-shop-noop-test",
+    });
+
+    // Persist a state already in in-shop status
+    const preState: RunState = {
+      ...makeRunState("seed-shop"),
+      status: "in-shop",
+      round: 1,
+      clearedRowsThisRound: 5,
+      gold: 3,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const beforeTap = game.__getRunState();
+    // Multiple taps must not change state
+    fake.fireTap({ x: 100, y: 300 });
+    fake.fireTap({ x: 100, y: 300 });
+
+    const afterTap = game.__getRunState();
+    // committedBlocks must not have changed
+    expect(afterTap.committedBlocks).toBe(beforeTap.committedBlocks);
+    // status must still be in-shop
+    expect(afterTap.status).toBe("in-shop");
+
+    await game.teardown();
+  });
+});
+
 describe("Game economy — currency yield at run-end", () => {
   it("calls addYield with correct formula on top-out: 50 rows, round 6 → 15", async () => {
     const idb = new IDBFactory();

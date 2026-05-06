@@ -7,6 +7,7 @@ import type { RunState } from "./runState.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
 import { resolveEffect } from "./effects/dispatcher.ts";
 import { draw } from "./deck.ts";
+import { checkRoundEnd } from "./round.ts";
 
 // ---------------------------------------------------------------------------
 // Re-export RunState from runState.ts for backward compatibility.
@@ -14,6 +15,7 @@ import { draw } from "./deck.ts";
 // ---------------------------------------------------------------------------
 export type { RunState, RunStatus } from "./runState.ts";
 export { makeRunState } from "./runState.ts";
+export { checkRoundEnd, exitShop } from "./round.ts";
 
 export interface DropResult {
   readonly state: RunState;
@@ -226,8 +228,8 @@ export const commitActive = (
   toppedOut: boolean;
   reason: "spawn-collision" | "garbage-shift" | null;
 } => {
-  // No-op after top-out
-  if (state.status === "ended") {
+  // No-op after top-out or while in the shop
+  if (state.status === "ended" || state.status === "in-shop") {
     return { state, toppedOut: false, reason: null };
   }
 
@@ -256,12 +258,15 @@ export const commitActive = (
   const drawn = draw(result.state, rng);
   // Persist rng.state AFTER all RNG operations (shuffle/draw) so cross-session
   // restore replays from the correct position rather than replaying from start.
-  const nextState: RunState = {
+  const afterDraw: RunState = {
     ...drawn.state,
     active: drawn.drew,
     activeColumn: SPAWN_COL,
     rngState: rng.state,
   };
 
-  return { state: nextState, toppedOut: false, reason: null };
+  // Check whether this commit cleared enough rows to end the round.
+  const roundCheck = checkRoundEnd(afterDraw);
+
+  return { state: roundCheck.state, toppedOut: false, reason: null };
 };
