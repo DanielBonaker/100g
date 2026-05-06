@@ -2,6 +2,7 @@ import type { RunState, OwnedCreature } from "./runState.ts";
 import { computeUnlockedTiers } from "./runState.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
 import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
+import { evaluate } from "./achievements.ts";
 
 export type Size = 1 | 2 | 3 | 4 | 5;
 
@@ -66,13 +67,21 @@ export const roll = (
     picked.tier,
   );
 
+  const stateAfterRoll: RunState = {
+    ...state,
+    owned: [...state.owned, newCreature],
+    nextInstanceId: state.nextInstanceId + 1,
+    uniqueOwnedIds,
+    unlockedFusionTiers,
+  };
+
   return {
     state: {
-      ...state,
-      owned: [...state.owned, newCreature],
-      nextInstanceId: state.nextInstanceId + 1,
-      uniqueOwnedIds,
-      unlockedFusionTiers,
+      ...stateAfterRoll,
+      achievementsUnlocked: evaluate(stateAfterRoll, {
+        type: "creature-added",
+        creatureId: picked.id,
+      }),
     },
     drawn: newCreature,
   };

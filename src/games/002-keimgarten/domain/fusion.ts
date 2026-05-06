@@ -2,6 +2,7 @@ import type { RunState, OwnedCreature } from "./runState.ts";
 import { computeUnlockedTiers } from "./runState.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
 import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
+import { evaluate } from "./achievements.ts";
 
 export type FusionTarget = 6 | 7 | 8 | 9;
 
@@ -101,14 +102,27 @@ export const fuse = (
     targetSize,
   );
 
+  // Evaluate achievements: first apply fusion-completed, then creature-added
+  const stateAfterFuse: RunState = {
+    ...state,
+    owned: newOwned,
+    nextInstanceId: state.nextInstanceId + 1,
+    uniqueOwnedIds: ownedIds,
+    unlockedFusionTiers: newUnlockedTiers,
+  };
+  const afterFusionAchs = evaluate(stateAfterFuse, {
+    type: "fusion-completed",
+  });
+  const afterCreatureAchs = evaluate(
+    { ...stateAfterFuse, achievementsUnlocked: afterFusionAchs },
+    { type: "creature-added", creatureId: picked.id },
+  );
+
   return {
     success: true,
     state: {
-      ...state,
-      owned: newOwned,
-      nextInstanceId: state.nextInstanceId + 1,
-      uniqueOwnedIds: ownedIds,
-      unlockedFusionTiers: newUnlockedTiers,
+      ...stateAfterFuse,
+      achievementsUnlocked: afterCreatureAchs,
     },
     output: newCreature,
     reason: null,

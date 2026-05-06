@@ -1374,3 +1374,481 @@ describe("Fusion button and overlay", () => {
     await game.teardown();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Achievements service forwarding
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a makeCtx variant that captures achievements.unlock calls.
+ * Returns the ctx and a spy that records calls.
+ */
+const makeCtxWithAchievements = (
+  economy?: Economy,
+  persistence?: Persistence,
+): {
+  ctx: ReturnType<typeof makeCtx>;
+  unlockSpy: ReturnType<typeof vi.fn>;
+} => {
+  const unlockSpy = vi.fn();
+  const ctx = makeCtx(persistence, undefined, economy);
+  ctx.services.achievements.unlock = unlockSpy;
+  return { ctx, unlockSpy };
+};
+
+describe("achievements — game.ts forwards unlock to service", () => {
+  it("successful fusion calls achievements.unlock('002-keimgarten', 'first-fusion') exactly once", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-first-fusion" });
+
+    const economy = makeMockEconomy(5000);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size1c = B.find((c) => c.tier === 1)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6] as number[],
+      achievementsUnlocked: [] as string[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size1c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size1c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    unlockSpy.mockClear();
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='6']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-role='fusion-confirm']")!
+      .click();
+
+    // first-fusion should have been unlocked exactly once
+    const firstFusionCalls = (
+      unlockSpy.mock.calls as [string, string][]
+    ).filter(([, id]) => id === "first-fusion");
+    expect(firstFusionCalls.length).toBe(1);
+    expect(firstFusionCalls[0]![0]).toBe("002-keimgarten");
+
+    await game.teardown();
+  });
+
+  it("subsequent fusion does NOT re-fire first-fusion", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-no-refire" });
+
+    const economy = makeMockEconomy(5000);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size1c = B.find((c) => c.tier === 1)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+
+    // State where first-fusion is ALREADY unlocked
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6] as number[],
+      achievementsUnlocked: ["first-fusion"] as string[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size1c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size1c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    unlockSpy.mockClear();
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='6']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-role='fusion-confirm']")!
+      .click();
+
+    // first-fusion must NOT be fired again
+    const firstFusionCalls = (
+      unlockSpy.mock.calls as [string, string][]
+    ).filter(([, id]) => id === "first-fusion");
+    expect(firstFusionCalls.length).toBe(0);
+
+    await game.teardown();
+  });
+
+  it("fusion to tier-8 fires first-archon", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-archon-fuse" });
+
+    const economy = makeMockEconomy(5000);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size3c = B.find((c) => c.tier === 3)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7, 8] as number[],
+      achievementsUnlocked: ["first-fusion"] as string[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size3c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size3c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    unlockSpy.mockClear();
+
+    // Fuse 3+5=8 → should fire first-archon
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='8']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    const confirmBtn = fusionOv.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+
+    const archonCalls = (unlockSpy.mock.calls as [string, string][]).filter(
+      ([, id]) => id === "first-archon",
+    );
+    expect(archonCalls.length).toBe(1);
+    expect(archonCalls[0]![0]).toBe("002-keimgarten");
+
+    await game.teardown();
+  });
+
+  it("fusion to tier-9 fires vollkommen", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-vollkommen" });
+
+    const economy = makeMockEconomy(10000);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size4c = B.find((c) => c.tier === 4)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7, 8, 9] as number[],
+      achievementsUnlocked: ["first-fusion"] as string[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size4c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size4c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    unlockSpy.mockClear();
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='9']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+
+    const confirmBtn = fusionOv.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+
+    const vollCalls = (unlockSpy.mock.calls as [string, string][]).filter(
+      ([, id]) => id === "vollkommen",
+    );
+    expect(vollCalls.length).toBe(1);
+    expect(vollCalls[0]![0]).toBe("002-keimgarten");
+
+    await game.teardown();
+  });
+
+  it("save/reload: achievementsUnlocked persisted — first-fusion NOT re-emitted on init", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-reload" });
+
+    // Save a state with first-fusion already unlocked
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const base = mrs();
+    const savedState = {
+      ...base,
+      achievementsUnlocked: ["first-fusion"] as string[],
+    };
+    await persistence.save("keimgarten-run", savedState);
+
+    const economy = makeMockEconomy(100);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+    const game = createKeimgartenGame();
+
+    await game.init(ctx);
+
+    // On init with a persisted unlock, no further unlock calls should happen
+    const firstFusionCalls = (
+      unlockSpy.mock.calls as [string, string][]
+    ).filter(([, id]) => id === "first-fusion");
+    expect(firstFusionCalls.length).toBe(0);
+
+    const restoredState = game.__getRunState();
+    expect(restoredState.achievementsUnlocked).toContain("first-fusion");
+
+    await game.teardown();
+  });
+
+  it("integration: fusion to size-9 unlocks first-fusion and vollkommen (both exactly once)", async () => {
+    const { createPersistence: cp } =
+      await import("../../services/persistence/index.ts");
+    const idb = (await import("fake-indexeddb")).IDBFactory;
+    const persistence = cp({ idb: new idb(), dbName: "kg-ach-integration" });
+
+    const economy = makeMockEconomy(10000);
+    const { ctx, unlockSpy } = makeCtxWithAchievements(economy, persistence);
+
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const { makeRunState: mrs } = await import("./domain/runState.ts");
+    const size4c = B.find((c) => c.tier === 4)!;
+    const size5c = B.find((c) => c.tier === 5)!;
+    const base = mrs();
+    const preparedState = {
+      ...base,
+      unlockedFusionTiers: [6, 7, 8, 9] as number[],
+      achievementsUnlocked: [] as string[],
+      owned: [
+        {
+          instanceId: 0,
+          creatureId: size4c.id,
+          position: { x: 10, y: 10 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 1,
+          walkTargetX: 10,
+          walkTargetY: 10,
+        },
+        {
+          instanceId: 1,
+          creatureId: size5c.id,
+          position: { x: 20, y: 20 },
+          state: "idle" as const,
+          stateUntil: 0,
+          facing: 1 as const,
+          seed: 2,
+          walkTargetX: 20,
+          walkTargetY: 20,
+        },
+      ],
+      nextInstanceId: 2,
+      uniqueOwnedIds: [size4c.id, size5c.id],
+    };
+    await persistence.save("keimgarten-run", preparedState);
+
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    unlockSpy.mockClear();
+
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOv = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-target-size='9']")!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="0"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>('[data-instance-id="1"]')!
+      .click();
+    fusionOv
+      .querySelector<HTMLButtonElement>("[data-role='fusion-confirm']")!
+      .click();
+
+    // Both first-fusion and vollkommen should be unlocked exactly once
+    const calls = unlockSpy.mock.calls as [string, string][];
+    const ids = calls.map(([, id]) => id);
+    expect(ids.filter((id) => id === "first-fusion").length).toBe(1);
+    expect(ids.filter((id) => id === "vollkommen").length).toBe(1);
+    // tier-9 is not tier-8, first-archon should NOT fire
+    expect(ids.filter((id) => id === "first-archon").length).toBe(0);
+
+    await game.teardown();
+  });
+});

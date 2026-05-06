@@ -1,6 +1,7 @@
 import type { RunState, OwnedCreature } from "./runState.ts";
 import { computeUnlockedTiers } from "./runState.ts";
 import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
+import { evaluate } from "./achievements.ts";
 
 // 0.4 s × 60 ticks/s = 24 ticks for hop duration
 const HOP_TICKS = 24;
@@ -53,12 +54,20 @@ export const applyAction = (
       creatureTier,
     );
 
-    return {
+    const stateAfterOwn: RunState = {
       ...state,
       owned: [...state.owned, newCreature],
       nextInstanceId: state.nextInstanceId + 1,
       uniqueOwnedIds,
       unlockedFusionTiers,
+    };
+
+    return {
+      ...stateAfterOwn,
+      achievementsUnlocked: evaluate(stateAfterOwn, {
+        type: "creature-added",
+        creatureId: action.creatureId,
+      }),
     };
   }
 
