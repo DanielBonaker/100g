@@ -15,6 +15,7 @@ import {
 import type { RunState } from "./domain/runState.ts";
 import { IDBFactory } from "fake-indexeddb";
 import { createPersistence } from "../../services/persistence/index.ts";
+import { MAX_DECK_SIZE } from "./domain/shop.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal GameContext with a controllable input service
@@ -651,6 +652,249 @@ describe("Game economy — currency yield at run-end", () => {
     fake.fireTap({ x: 100, y: 300 });
 
     expect(economy.addYieldSpy).toHaveBeenCalledWith("001-drop-deck", 15);
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shop UI DOM tests
+// ---------------------------------------------------------------------------
+
+describe("Shop UI — tier buttons render on in-shop status", () => {
+  it("mounts a [data-role=shop] overlay when status is in-shop", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-render" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-seed"),
+      status: "in-shop",
+      gold: 20,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']");
+    expect(shopEl).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("shop overlay has buttons for Small, Medium, and Large tiers", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-buttons" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-btns"),
+      status: "in-shop",
+      gold: 20,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const smallBtn = shopEl.querySelector("[data-booster='small']");
+    const mediumBtn = shopEl.querySelector("[data-booster='medium']");
+    const largeBtn = shopEl.querySelector("[data-booster='large']");
+
+    expect(smallBtn).not.toBeNull();
+    expect(mediumBtn).not.toBeNull();
+    expect(largeBtn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("does NOT mount shop overlay when status is running", async () => {
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // Default status is running
+    expect(game.__getRunState().status).toBe("running");
+    const shopEl = ctx.container.querySelector("[data-role='shop']");
+    expect(shopEl).toBeNull();
+
+    await game.teardown();
+  });
+});
+
+describe("Shop UI — tapping a tier button with sufficient gold populates shopOffer", () => {
+  it("clicking the small booster button sets shopOffer on the state", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-purchase" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-buy"),
+      status: "in-shop",
+      gold: 10,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const smallBtn = shopEl.querySelector<HTMLElement>(
+      "[data-booster='small']",
+    )!;
+    smallBtn.click();
+
+    const afterClick = game.__getRunState();
+    expect(afterClick.shopOffer).not.toBeNull();
+    expect(afterClick.shopOffer?.tier).toBe("small");
+    expect(afterClick.gold).toBe(8); // 10 - 2
+
+    await game.teardown();
+  });
+});
+
+describe("Shop UI — pick screen shows 3 block options after purchase", () => {
+  it("after purchasing small booster, pick buttons appear in the shop overlay", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-picks" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-picks-seed"),
+      status: "in-shop",
+      gold: 10,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const smallBtn = shopEl.querySelector<HTMLElement>(
+      "[data-booster='small']",
+    )!;
+    smallBtn.click();
+
+    // After purchase, pick buttons should appear
+    const pickBtns = shopEl.querySelectorAll("[data-pick]");
+    expect(pickBtns.length).toBe(3);
+
+    await game.teardown();
+  });
+
+  it("tapping a pick button adds block to deck and clears shopOffer", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({
+      idb,
+      dbName: "shop-ui-pick-click",
+    });
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-pick-click-seed"),
+      status: "in-shop",
+      gold: 10,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const deckBefore = game.__getRunState().deck.length;
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const smallBtn = shopEl.querySelector<HTMLElement>(
+      "[data-booster='small']",
+    )!;
+    smallBtn.click();
+
+    const pickBtn = shopEl.querySelector<HTMLElement>("[data-pick]")!;
+    pickBtn.click();
+
+    const afterPick = game.__getRunState();
+    expect(afterPick.shopOffer).toBeNull();
+    expect(afterPick.deck.length).toBe(deckBefore + 1);
+
+    await game.teardown();
+  });
+});
+
+describe("Shop UI — Exit Shop button calls exitShop", () => {
+  it("tapping Exit Shop transitions status back to running", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-exit" });
+
+    const preState: RunState = {
+      ...makeRunState("shop-exit-seed"),
+      status: "in-shop",
+      gold: 0,
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    expect(game.__getRunState().status).toBe("in-shop");
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const exitBtn = shopEl.querySelector<HTMLElement>(
+      "[data-action='exit-shop']",
+    )!;
+    exitBtn.click();
+
+    expect(game.__getRunState().status).toBe("running");
+
+    await game.teardown();
+  });
+});
+
+describe("Shop UI — max deck size guard", () => {
+  it("purchase button click is no-op when deck is at max size", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "shop-ui-max-deck" });
+
+    const fullDeck: RunState["deck"] = Array.from(
+      { length: MAX_DECK_SIZE },
+      (_, i) => ({
+        id: `test-deck-full-${String(i)}`,
+        cellCount: 1,
+        cells: [{ dx: 0, dy: 0 }],
+        effectId: "standard" as const,
+      }),
+    );
+
+    const preState: RunState = {
+      ...makeRunState("shop-ui-max-deck-seed"),
+      status: "in-shop",
+      gold: 100,
+      deck: fullDeck,
+      drawQueue: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const ctx = makeCtx(fake.inputService, persistence);
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    const shopEl = ctx.container.querySelector("[data-role='shop']")!;
+    const smallBtn = shopEl.querySelector<HTMLElement>(
+      "[data-booster='small']",
+    )!;
+    smallBtn.click();
+
+    // No offer set because deck is full
+    expect(game.__getRunState().shopOffer).toBeNull();
 
     await game.teardown();
   });
