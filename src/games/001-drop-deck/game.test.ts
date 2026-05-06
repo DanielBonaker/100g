@@ -226,7 +226,7 @@ describe("Game persistence — cross-session restore", () => {
     await persistence.load("drop-deck-run");
 
     const stateAfterA = gameA.__getRunState();
-    expect(stateAfterA.committedCells).toBe(1);
+    expect(stateAfterA.committedBlocks).toBe(1);
     await gameA.teardown();
 
     // Session B: create a NEW game instance backed by the same persistence
@@ -237,7 +237,7 @@ describe("Game persistence — cross-session restore", () => {
 
     const stateAfterB = gameB.__getRunState();
     // The bottom row of center column (col 4) must still be occupied
-    expect(stateAfterB.committedCells).toBe(1);
+    expect(stateAfterB.committedBlocks).toBe(1);
     expect(stateAfterB.board[BOARD_ROWS - 1]![4]).not.toBeNull();
 
     await gameB.teardown();
@@ -267,8 +267,8 @@ describe("Game persistence — malformed saved state falls back to fresh state",
     await game.init(ctx);
 
     const state = game.__getRunState();
-    // A fresh state always has committedCells = 0 and status = "running"
-    expect(state.committedCells).toBe(0);
+    // A fresh state always has committedBlocks = 0 and status = "running"
+    expect(state.committedBlocks).toBe(0);
     expect(state.status).toBe("running");
     // Board must be a proper array (not the garbage string)
     expect(Array.isArray(state.board)).toBe(true);
