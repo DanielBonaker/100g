@@ -16,6 +16,10 @@ import {
   createHelloWorldGame,
   manifest as helloWorldManifest,
 } from "./games/000-hello-world/index.ts";
+import {
+  createKeimgartenGame,
+  manifest as keimgartenManifest,
+} from "./games/002-keimgarten/index.ts";
 
 // Temporary no-op audio stub — real service ships with issue #30.
 function makeNoOpAudio(): Audio {
@@ -46,6 +50,7 @@ void (async () => {
   const engine = createEngine(root, { services });
   engine.register(dropDeckManifest, () => createDropDeckGame());
   engine.register(helloWorldManifest, () => createHelloWorldGame());
+  engine.register(keimgartenManifest, () => createKeimgartenGame());
 
   createRouter(root, {
     engine,
@@ -54,6 +59,7 @@ void (async () => {
     registeredGames: [
       { manifest: dropDeckManifest },
       { manifest: helloWorldManifest },
+      { manifest: keimgartenManifest },
     ],
   });
 })();
