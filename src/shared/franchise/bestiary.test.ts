@@ -8,7 +8,8 @@ import {
   BESTIARY,
   BESTIARY_SIZE,
   TIER_COUNTS,
-  TIER_META,
+  TIERS,
+  getTier,
   type CreatureShape,
   type FranchiseTier,
 } from "./index.ts";
@@ -121,16 +122,18 @@ describe("BESTIARY data", () => {
   });
 });
 
-describe("TIER_META", () => {
-  it("has metadata for all 9 tiers in order", () => {
-    expect(TIER_META).toHaveLength(9);
-    for (let i = 0; i < 9; i++) {
-      expect(TIER_META[i]?.tier).toBe(i + 1);
+describe("TIERS", () => {
+  it("has metadata for all 9 tiers", () => {
+    expect(Object.keys(TIERS)).toHaveLength(9);
+    for (let i = 1; i <= 9; i++) {
+      expect(getTier(i).label).toBeTruthy();
     }
   });
 
   it("uses the canonical German tier labels", () => {
-    const labels = TIER_META.map((m) => m.label);
+    const labels = ([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).map(
+      (t) => TIERS[t].label,
+    );
     expect(labels).toEqual([
       "Keim",
       "Bund",

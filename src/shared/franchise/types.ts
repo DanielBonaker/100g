@@ -6,16 +6,28 @@ export interface Tier {
   readonly hex: string;
 }
 
-// Stub — replaced in GREEN commit
-export const TIERS: Readonly<Record<FranchiseTier, Tier>> = {} as Readonly<
-  Record<FranchiseTier, Tier>
->;
+export const TIERS: Readonly<Record<FranchiseTier, Tier>> = {
+  1: { label: "Keim", sub: "Ursprung", hex: "#888888" },
+  2: { label: "Bund", sub: "Verbindung", hex: "#66AACC" },
+  3: { label: "Funke", sub: "Erwachen", hex: "#44CC88" },
+  4: { label: "Gestalt", sub: "Formung", hex: "#CCAA44" },
+  5: { label: "Wesen", sub: "Bewusstsein", hex: "#CC6644" },
+  6: { label: "Titan", sub: "Macht", hex: "#CC44AA" },
+  7: { label: "Apex", sub: "Herrschaft", hex: "#8844FF" },
+  8: { label: "Archon", sub: "Vollendung", hex: "#FFD700" },
+  9: { label: "Absolut", sub: "Transzendenz", hex: "#FFFFFF" },
+};
 
 export const isFranchiseTier = (n: number): n is FranchiseTier =>
   Number.isInteger(n) && n >= 1 && n <= 9;
 
 export const getTier = (size: number): Tier => {
-  throw new Error(`getTier: stub — not implemented (size ${size.toString()})`);
+  if (!isFranchiseTier(size)) {
+    throw new Error(
+      `getTier: out-of-range size ${size.toString()} (must be 1..9)`,
+    );
+  }
+  return TIERS[size];
 };
 
 export type Cell = readonly [row: number, col: number];
@@ -27,24 +39,6 @@ export interface CreatureShape {
   readonly nameDe: string;
   readonly mirrorSymmetric: boolean;
 }
-
-export interface FranchiseTierMeta {
-  readonly tier: FranchiseTier;
-  readonly label: string;
-  readonly subtitle: string;
-}
-
-export const TIER_META: readonly FranchiseTierMeta[] = [
-  { tier: 1, label: "Keim", subtitle: "Ursprung" },
-  { tier: 2, label: "Bund", subtitle: "Verbindung" },
-  { tier: 3, label: "Funke", subtitle: "Erwachen" },
-  { tier: 4, label: "Gestalt", subtitle: "Formung" },
-  { tier: 5, label: "Wesen", subtitle: "Bewusstsein" },
-  { tier: 6, label: "Titan", subtitle: "Macht" },
-  { tier: 7, label: "Apex", subtitle: "Herrschaft" },
-  { tier: 8, label: "Archon", subtitle: "Vollendung" },
-  { tier: 9, label: "Absolut", subtitle: "Transzendenz" },
-];
 
 export const TIER_COUNTS: Readonly<Record<FranchiseTier, number>> = {
   1: 1,
