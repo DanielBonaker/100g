@@ -2,7 +2,10 @@ export const BOARD_COLS = 8;
 export const BOARD_ROWS = 16;
 export const SPAWN_COL = 4;
 
-export type Cell = { readonly id: number } | null;
+export type Cell = {
+  readonly id: number;
+  readonly kind?: "block" | "garbage";
+} | null;
 
 export type Board = readonly (readonly Cell[])[];
 
