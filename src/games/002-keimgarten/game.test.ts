@@ -1,0 +1,248 @@
+import { describe, it, expect } from "vitest";
+import { createKeimgartenGame } from "./game.ts";
+import type { GameContext, Persistence } from "../../engine/Game.ts";
+import { IDBFactory } from "fake-indexeddb";
+import { createPersistence } from "../../services/persistence/index.ts";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const makeCtx = (persistence?: Persistence): GameContext => {
+  const container = document.createElement("div");
+  container.style.width = "375px";
+  container.style.height = "667px";
+  document.body.appendChild(container);
+  return {
+    container,
+    services: {
+      persistence: persistence ?? {
+        save: () => Promise.resolve(),
+        load: () => Promise.resolve(null),
+        delete: () => Promise.resolve(),
+      },
+      economy: {
+        getBalance: () => 0,
+        addYield: () => undefined,
+        subscribe: () => () => undefined,
+      },
+      achievements: {
+        unlock: () => undefined,
+        getUnlocked: () => [],
+        isUnlocked: () => false,
+        subscribe: () => () => undefined,
+      },
+      input: {
+        onTap: () => () => undefined,
+        onDrag: () => () => undefined,
+        onKey: () => () => undefined,
+      },
+      audio: {
+        enable: () => undefined,
+        setMuted: () => undefined,
+        play: () => undefined,
+      },
+    },
+    rng: {
+      next: () => 0.5,
+      int: (min) => min,
+      fork: function () {
+        return this;
+      },
+      state: "test",
+    },
+    dimensions: { width: 375, height: 667, devicePixelRatio: 1 },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Contract tests
+// ---------------------------------------------------------------------------
+
+describe("createKeimgartenGame — contract", () => {
+  it("returns an object with init / update / render / teardown", () => {
+    const game = createKeimgartenGame();
+    expect(typeof game.init).toBe("function");
+    expect(typeof game.update).toBe("function");
+    expect(typeof game.render).toBe("function");
+    expect(typeof game.teardown).toBe("function");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lifecycle tests
+// ---------------------------------------------------------------------------
+
+describe("Keimgarten lifecycle", () => {
+  it("init mounts a canvas under ctx.container", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    const canvas = ctx.container.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+    await game.teardown();
+  });
+
+  it("teardown removes the canvas from ctx.container", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown();
+    const canvas = ctx.container.querySelector("canvas");
+    expect(canvas).toBeNull();
+  });
+
+  it("update and render are callable without throwing", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    expect(() => {
+      game.update(16);
+    }).not.toThrow();
+    expect(() => {
+      game.render();
+    }).not.toThrow();
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keim starter creature
+// ---------------------------------------------------------------------------
+
+describe("Keim starter creature", () => {
+  it("fresh save has starter Keim (creatureId=0) owned", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    const state = game.__getRunState();
+    const keim = state.owned.find((c) => c.creatureId === 0);
+    expect(keim).toBeDefined();
+    await game.teardown();
+  });
+
+  it("starter Keim starts in the play area (y within 0..55, x within 0..47)", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    const state = game.__getRunState();
+    const keim = state.owned[0];
+    expect(keim).toBeDefined();
+    expect(keim!.position.x).toBeGreaterThanOrEqual(0);
+    expect(keim!.position.x).toBeLessThanOrEqual(47);
+    expect(keim!.position.y).toBeGreaterThanOrEqual(0);
+    expect(keim!.position.y).toBeLessThanOrEqual(55);
+    await game.teardown();
+  });
+
+  it("ticking the engine changes Keim position over time (eventually walks)", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const initialState = game.__getRunState();
+    const initialPos = { ...initialState.owned[0]!.position };
+
+    // Force the creature into walk state by ticking past stateUntil
+    // We tick 200 times — creature must eventually walk
+    for (let i = 0; i < 200; i++) {
+      game.update(16);
+    }
+
+    const finalState = game.__getRunState();
+    const finalPos = finalState.owned[0]!.position;
+
+    // After 200 ticks, position should have changed (creature walks)
+    // or at minimum tick counter incremented
+    expect(finalState.tick).toBe(200);
+
+    // Positions are integer pixels
+    expect(Number.isInteger(finalPos.x)).toBe(true);
+    expect(Number.isInteger(finalPos.y)).toBe(true);
+
+    // Position stays within play area bounds
+    expect(finalPos.x).toBeGreaterThanOrEqual(0);
+    expect(finalPos.x).toBeLessThanOrEqual(47);
+    expect(finalPos.y).toBeGreaterThanOrEqual(0);
+    expect(finalPos.y).toBeLessThanOrEqual(55);
+
+    // Position changed from initial (creature wandered)
+    const moved = finalPos.x !== initialPos.x || finalPos.y !== initialPos.y;
+    expect(moved).toBe(true);
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-session restore
+// ---------------------------------------------------------------------------
+
+describe("cross-session persistence restore", () => {
+  it("restores Keim state after re-init with saved state", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "keimgarten-test" });
+
+    // First session: init, tick a bit, then teardown
+    const ctx1 = makeCtx(persistence);
+    const game1 = createKeimgartenGame();
+    await game1.init(ctx1);
+
+    // Advance state — tick to make sure some state change occurs
+    for (let i = 0; i < 50; i++) {
+      game1.update(16);
+    }
+
+    const savedState = game1.__getRunState();
+
+    // Flush any pending save (debounce)
+    await persistence.save("keimgarten-run", savedState);
+
+    await game1.teardown();
+
+    // Second session: fresh game, same persistence
+    const ctx2 = makeCtx(persistence);
+    const game2 = createKeimgartenGame();
+    await game2.init(ctx2);
+
+    const restoredState = game2.__getRunState();
+
+    // tick counter should be restored
+    expect(restoredState.tick).toBe(savedState.tick);
+
+    // Keim should still exist
+    expect(restoredState.owned).toHaveLength(savedState.owned.length);
+    expect(restoredState.owned[0]!.creatureId).toBe(0);
+
+    await game2.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Render tests for hueFromId
+// ---------------------------------------------------------------------------
+
+describe("hueFromId", () => {
+  it("returns a deterministic value for id=0 size=1", async () => {
+    const { hueFromId } = await import("./render/creatureSprite.ts");
+    const color1 = hueFromId(0, 1);
+    const color2 = hueFromId(0, 1);
+    expect(color1).toBe(color2);
+  });
+
+  it("returns different values for different ids", async () => {
+    const { hueFromId } = await import("./render/creatureSprite.ts");
+    const c1 = hueFromId(0, 1);
+    const c2 = hueFromId(1, 1);
+    expect(c1).not.toBe(c2);
+  });
+
+  it("returns a number in valid RGB range (0..0xFFFFFF)", async () => {
+    const { hueFromId } = await import("./render/creatureSprite.ts");
+    for (let id = 0; id < 10; id++) {
+      const c = hueFromId(id, 1);
+      expect(c).toBeGreaterThanOrEqual(0);
+      expect(c).toBeLessThanOrEqual(0xffffff);
+    }
+  });
+});
