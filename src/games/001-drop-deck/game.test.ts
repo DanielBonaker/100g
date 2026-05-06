@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { GameContext, Persistence } from "../../engine/Game.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type {
@@ -6,7 +6,13 @@ import type {
   TapEvent,
 } from "../../services/input/types.ts";
 import { createDropDeckGame } from "./game.ts";
-import { BOARD_ROWS, BOARD_COLS } from "./domain/board.ts";
+import {
+  BOARD_ROWS,
+  BOARD_COLS,
+  emptyBoard,
+  makeRunState,
+} from "./domain/board.ts";
+import type { RunState } from "./domain/runState.ts";
 import { IDBFactory } from "fake-indexeddb";
 import { createPersistence } from "../../services/persistence/index.ts";
 
@@ -65,8 +71,17 @@ const makeCtx = (
         load: () => Promise.resolve(null),
         delete: () => Promise.resolve(),
       },
-      economy: { getBalance: () => 0, addYield: () => undefined },
-      achievements: { unlock: () => undefined, isUnlocked: () => false },
+      economy: {
+        getBalance: () => 0,
+        addYield: () => undefined,
+        subscribe: () => () => undefined,
+      },
+      achievements: {
+        unlock: () => undefined,
+        getUnlocked: () => [],
+        isUnlocked: () => false,
+        subscribe: () => () => undefined,
+      },
       input,
       audio: {
         enable: () => undefined,
@@ -277,6 +292,313 @@ describe("Game persistence — malformed saved state falls back to fresh state",
     // The malformed entry must have been deleted — next load returns null
     const stored = await persistence.load("drop-deck-run");
     expect(stored).toBeNull();
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers for achievement / economy spy tests
+// ---------------------------------------------------------------------------
+
+type SpyAchievements = GameContext["services"]["achievements"] & {
+  unlockSpy: ReturnType<typeof vi.fn>;
+};
+
+type SpyEconomy = GameContext["services"]["economy"] & {
+  addYieldSpy: ReturnType<typeof vi.fn>;
+};
+
+const makeSpyAchievements = (): SpyAchievements => {
+  const unlockSpy = vi.fn();
+  return {
+    unlockSpy,
+    unlock: unlockSpy,
+    getUnlocked: () => [],
+    isUnlocked: () => false,
+    subscribe: () => () => undefined,
+  };
+};
+
+const makeSpyEconomy = (): SpyEconomy => {
+  const addYieldSpy = vi.fn();
+  return {
+    addYieldSpy,
+    getBalance: () => 0,
+    addYield: addYieldSpy,
+    subscribe: () => () => undefined,
+  };
+};
+
+const makeCtxWithSpies = (
+  input: FakeInput["inputService"],
+  achievements: SpyAchievements,
+  economy: SpyEconomy,
+  persistence?: Persistence,
+): GameContext => {
+  const container = document.createElement("div");
+  container.style.width = "375px";
+  container.style.height = "667px";
+  document.body.appendChild(container);
+  return {
+    container,
+    services: {
+      persistence: persistence ?? {
+        save: (_key, _value, _opts?) => Promise.resolve(),
+        load: () => Promise.resolve(null),
+        delete: () => Promise.resolve(),
+      },
+      economy,
+      achievements,
+      input,
+      audio: {
+        enable: () => undefined,
+        setMuted: () => undefined,
+        play: () => undefined,
+      },
+    },
+    rng: {
+      next: () => 0.5,
+      int: (min) => min,
+      fork: function () {
+        return this;
+      },
+      state: "test",
+    },
+    dimensions: { width: 375, height: 667, devicePixelRatio: 1 },
+  };
+};
+
+/**
+ * Build a valid RunState with 7 of 8 columns filled in the bottom row
+ * (columns 0-3 and 5-7) so that one tap at column 4 (spawn) will clear
+ * the row and push clearedRowsThisRun over the threshold.
+ */
+const makeStateWithAlmostFullBottomRow = (
+  clearedRowsThisRun: number,
+  highestRoundReached = 0,
+  round = 1,
+): RunState => {
+  const base = makeRunState("seed-test");
+  const board = emptyBoard().map((row, r) => {
+    if (r === BOARD_ROWS - 1) {
+      return row.map((_cell, c) => (c === 4 ? null : { id: 1000 + c }));
+    }
+    return row;
+  }) as RunState["board"];
+
+  return {
+    ...base,
+    board,
+    activeColumn: 4,
+    clearedRowsThisRun,
+    highestRoundReached,
+    round,
+    achievementsUnlockedThisRun: [],
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Achievement trigger tests
+// ---------------------------------------------------------------------------
+
+describe("Game achievements — dd-rows-100 trigger", () => {
+  it("unlocks dd-rows-100 when clearedRowsThisRun reaches 100 in one run", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "ach-rows-test" });
+
+    // Persist state with 99 rows cleared and board one-tap-from-full-row
+    const preState = makeStateWithAlmostFullBottomRow(99);
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const achievements = makeSpyAchievements();
+    const economy = makeSpyEconomy();
+    const ctx = makeCtxWithSpies(
+      fake.inputService,
+      achievements,
+      economy,
+      persistence,
+    );
+
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // Tap to fill col 4 in the bottom row, clearing the row → 99+1=100
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(achievements.unlockSpy).toHaveBeenCalledWith(
+      "001-drop-deck",
+      "dd-rows-100",
+    );
+
+    await game.teardown();
+  });
+
+  it("does NOT unlock dd-rows-100 again in the same run after the first unlock", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "ach-rows-dedup" });
+
+    const preState = makeStateWithAlmostFullBottomRow(99);
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const achievements = makeSpyAchievements();
+    const economy = makeSpyEconomy();
+    const ctx = makeCtxWithSpies(
+      fake.inputService,
+      achievements,
+      economy,
+      persistence,
+    );
+
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // First tap → clears row → fires achievement (count = 1)
+    fake.fireTap({ x: 100, y: 300 });
+
+    const countAfterFirst = achievements.unlockSpy.mock.calls.filter(
+      (args) => args[1] === "dd-rows-100",
+    ).length;
+    expect(countAfterFirst).toBe(1);
+
+    // Several more taps — no re-fire for rows-100
+    for (let i = 0; i < 5; i++) {
+      fake.fireTap({ x: 100, y: 300 });
+    }
+
+    const countAfterMore = achievements.unlockSpy.mock.calls.filter(
+      (args) => args[1] === "dd-rows-100",
+    ).length;
+    expect(countAfterMore).toBe(1);
+
+    await game.teardown();
+  });
+});
+
+describe("Game achievements — dd-round-10 trigger", () => {
+  it("unlocks dd-round-10 when highestRoundReached reaches 10", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "ach-round-test" });
+
+    const preState: RunState = {
+      ...makeRunState("seed-test"),
+      highestRoundReached: 10,
+      activeColumn: 4,
+      achievementsUnlockedThisRun: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const achievements = makeSpyAchievements();
+    const economy = makeSpyEconomy();
+    const ctx = makeCtxWithSpies(
+      fake.inputService,
+      achievements,
+      economy,
+      persistence,
+    );
+
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // Any tap — game checks state and fires achievement for round-10
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(achievements.unlockSpy).toHaveBeenCalledWith(
+      "001-drop-deck",
+      "dd-round-10",
+    );
+
+    await game.teardown();
+  });
+});
+
+describe("Game achievements — dd-deck-20 trigger", () => {
+  it("unlocks dd-deck-20 when deck reaches size 20", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "ach-deck-test" });
+
+    const bigDeck: RunState["deck"] = Array.from({ length: 20 }, (_, i) => ({
+      id: `std-1x1-${String(i)}`,
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    }));
+
+    const preState: RunState = {
+      ...makeRunState("seed-test"),
+      deck: bigDeck,
+      activeColumn: 4,
+      achievementsUnlockedThisRun: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const achievements = makeSpyAchievements();
+    const economy = makeSpyEconomy();
+    const ctx = makeCtxWithSpies(
+      fake.inputService,
+      achievements,
+      economy,
+      persistence,
+    );
+
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // Any tap — game checks deck size and fires achievement
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(achievements.unlockSpy).toHaveBeenCalledWith(
+      "001-drop-deck",
+      "dd-deck-20",
+    );
+
+    await game.teardown();
+  });
+});
+
+describe("Game economy — currency yield at run-end", () => {
+  it("calls addYield with correct formula on top-out: 50 rows, round 6 → 15", async () => {
+    const idb = new IDBFactory();
+    const persistence = createPersistence({ idb, dbName: "eco-formula-test" });
+
+    // Fill all rows of column 4 → first tap triggers spawn-collision → top-out
+    const base = makeRunState("seed-formula");
+    const board = emptyBoard().map((row) => {
+      return row.map((cell, c) => (c === 4 ? { id: 3000 } : cell));
+    }) as RunState["board"];
+
+    const preState: RunState = {
+      ...base,
+      board,
+      activeColumn: 4,
+      clearedRowsThisRun: 50,
+      round: 6,
+      achievementsUnlockedThisRun: [],
+    };
+    await persistence.save("drop-deck-run", preState);
+
+    const fake = makeFakeInput();
+    const achievements = makeSpyAchievements();
+    const economy = makeSpyEconomy();
+    const ctx = makeCtxWithSpies(
+      fake.inputService,
+      achievements,
+      economy,
+      persistence,
+    );
+
+    const game = createDropDeckGame();
+    await game.init(ctx);
+
+    // Tap with col 4 row 0 already occupied → spawn-collision → top-out
+    // yield = min(50/5, 200) + min(6-1, 100) = 10 + 5 = 15
+    fake.fireTap({ x: 100, y: 300 });
+
+    expect(economy.addYieldSpy).toHaveBeenCalledWith("001-drop-deck", 15);
 
     await game.teardown();
   });

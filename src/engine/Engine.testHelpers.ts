@@ -14,10 +14,13 @@ export const stubServices = (): ServiceRegistry => ({
   economy: {
     getBalance: () => 0,
     addYield: () => undefined,
+    subscribe: () => () => undefined,
   },
   achievements: {
     unlock: () => undefined,
+    getUnlocked: () => [],
     isUnlocked: () => false,
+    subscribe: () => () => undefined,
   },
   input: {
     onTap: () => () => undefined,

@@ -1,7 +1,21 @@
 import type { Input } from "../services/input/index.ts";
 import type { SaveOptions } from "../services/persistence/types.ts";
+import type {
+  AchievementEvent,
+  Disposer as AchievementsDisposer,
+} from "../services/achievements/types.ts";
+import type {
+  EconomyEvent,
+  Disposer as EconomyDisposer,
+} from "../services/economy/types.ts";
 
 export type { SaveOptions };
+export type {
+  AchievementEvent,
+  AchievementsDisposer,
+  EconomyEvent,
+  EconomyDisposer,
+};
 
 export interface Persistence {
   save(key: string, value: unknown, opts?: SaveOptions): Promise<void>;
@@ -12,11 +26,14 @@ export interface Persistence {
 export interface Economy {
   getBalance(): number;
   addYield(gameId: string, amount: number): void;
+  subscribe(handler: (event: EconomyEvent) => void): EconomyDisposer;
 }
 
 export interface Achievements {
   unlock(gameId: string, achievementId: string): void;
+  getUnlocked(gameId: string): readonly string[];
   isUnlocked(gameId: string, achievementId: string): boolean;
+  subscribe(handler: (event: AchievementEvent) => void): AchievementsDisposer;
 }
 
 export interface Audio {

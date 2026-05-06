@@ -1,4 +1,5 @@
 import type { Game, GameContext, Persistence } from "../../engine/Game.ts";
+import type { Achievements, Economy } from "../../engine/services.ts";
 import type { Disposer } from "../../services/input/types.ts";
 import type { DragEvent as InputDragEvent } from "../../services/input/types.ts";
 import {
@@ -10,6 +11,7 @@ import {
 import type { RunState } from "./domain/board.ts";
 import { isRunState } from "./domain/runState.ts";
 import { makeRng } from "./domain/rng.ts";
+import { manifest } from "./manifest.ts";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -21,6 +23,15 @@ const BOARD_PIXEL_H = BOARD_ROWS * CELL_SIZE;
 
 // Each full cell-width of drag maps to one column shift
 const DRAG_COL_THRESHOLD = CELL_SIZE;
+
+// ---------------------------------------------------------------------------
+// Achievement IDs
+// ---------------------------------------------------------------------------
+
+const ACH_ROWS_100 = "dd-rows-100";
+const ACH_ROUND_10 = "dd-round-10";
+const ACH_DECK_20 = "dd-deck-20";
+const GAME_ID = "001-drop-deck";
 
 // ---------------------------------------------------------------------------
 // Pixi types — imported lazily so happy-dom tests can still run
@@ -105,6 +116,52 @@ const drawBoard = (
 };
 
 // ---------------------------------------------------------------------------
+// Achievement threshold checks — called after every commit
+// ---------------------------------------------------------------------------
+
+const checkAchievements = (
+  state: RunState,
+  achievements: Achievements,
+): RunState => {
+  let updated = state;
+
+  // dd-rows-100: once per run (tracked via achievementsUnlockedThisRun)
+  if (
+    updated.clearedRowsThisRun >= 100 &&
+    !updated.achievementsUnlockedThisRun.includes(ACH_ROWS_100)
+  ) {
+    achievements.unlock(GAME_ID, ACH_ROWS_100);
+    updated = {
+      ...updated,
+      achievementsUnlockedThisRun: [
+        ...updated.achievementsUnlockedThisRun,
+        ACH_ROWS_100,
+      ],
+    };
+  }
+
+  // dd-round-10: once per save (idempotent in service; RunState tracks for run dedup)
+  if (updated.highestRoundReached >= 10) {
+    achievements.unlock(GAME_ID, ACH_ROUND_10);
+  }
+
+  // dd-deck-20: once per save (idempotent in service)
+  if (updated.deck.length >= 20) {
+    achievements.unlock(GAME_ID, ACH_DECK_20);
+  }
+
+  return updated;
+};
+
+// ---------------------------------------------------------------------------
+// Currency yield on run-end
+// ---------------------------------------------------------------------------
+
+const emitYield = (state: RunState, economy: Economy): void => {
+  economy.addYield(GAME_ID, manifest.currencyYield(state));
+};
+
+// ---------------------------------------------------------------------------
 // Game factory
 // ---------------------------------------------------------------------------
 
@@ -116,6 +173,8 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   let boardGfx: PixiGraphics | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
   let persistence: Persistence | null = null;
+  let achievements: Achievements | null = null;
+  let economy: Economy | null = null;
   const disposers: Disposer[] = [];
 
   // Track drag state for column snapping
@@ -125,6 +184,8 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
   const init = async (ctx: GameContext): Promise<void> => {
     container = ctx.container;
     persistence = ctx.services.persistence;
+    achievements = ctx.services.achievements;
+    economy = ctx.services.economy;
 
     // Attempt to restore a prior run from persistence.
     // The isRunState guard rejects old-format saves (missing new fields from
@@ -176,12 +237,25 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
       const prevCommitted = runState.committedBlocks;
       const result = commitActive(runState, rng);
       runState = result.state;
+
       // Commit-save: debounced 50 ms. Only fires when a new cell was placed
       // (not a top-out or out-of-bounds no-op).
       if (runState.committedBlocks > prevCommitted && persistence !== null) {
         void persistence.save("drop-deck-run", runState, { debounceMs: 50 });
       }
-      // toppedOut is reflected in runState.status — no separate event needed
+
+      if (result.toppedOut) {
+        // Run ended — emit currency yield
+        if (economy !== null) {
+          emitYield(runState, economy);
+        }
+        return;
+      }
+
+      // Check achievement thresholds after a successful commit
+      if (achievements !== null) {
+        runState = checkAchievements(runState, achievements);
+      }
     });
 
     const dragDisposer = ctx.services.input.onDrag((e: InputDragEvent) => {
