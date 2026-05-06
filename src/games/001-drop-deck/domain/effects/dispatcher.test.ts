@@ -79,11 +79,13 @@ describe("resolveEffect — stub strategies throw not implemented", () => {
     expect(result.state.status).toBe("running");
   });
 
-  it("melt strategy throws not implemented", () => {
+  it("melt strategy places 1 cell via flood-fill (no longer a stub)", () => {
     const state = makeRunState("seed-1");
     const block = make1x1Block("melt");
     const ctx: PlaceContext = { state, block, column: 3, rng: makeTestRng() };
-    expect(() => resolveEffect(ctx)).toThrow("melt strategy: not implemented");
+    const result = resolveEffect(ctx);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state.status).toBe("running");
   });
 
   it("impact strategy throws not implemented", () => {
