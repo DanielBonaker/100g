@@ -1,13 +1,51 @@
 // 100g — bootstrap entry point.
-// The shell + engine wiring lands in subsequent vertical-slice issues.
-// For now this is the placeholder that proves the build chain works.
+// Wires persistence → economy → achievements → engine → router.
 
-const root = document.querySelector<HTMLDivElement>("#app");
-if (!root) throw new Error("missing #app root element");
+import type { Audio } from "./engine/services.ts";
+import { createPersistence } from "./services/persistence/index.ts";
+import { createEconomy } from "./services/economy/index.ts";
+import { createAchievements } from "./services/achievements/index.ts";
+import { createInput } from "./services/input/index.ts";
+import { createEngine } from "./engine/Engine.ts";
+import { createRouter } from "./shell/Router.ts";
+import {
+  createDropDeckGame,
+  manifest as dropDeckManifest,
+} from "./games/001-drop-deck/index.ts";
 
-root.innerHTML = `
-  <main>
-    <h1>100g</h1>
-    <p>100 mini-games. 100 days. Factory under construction.</p>
-  </main>
-`;
+// Temporary no-op audio stub — real service ships with issue #30.
+function makeNoOpAudio(): Audio {
+  return {
+    enable: () => undefined,
+    setMuted: () => undefined,
+    play: () => undefined,
+  };
+}
+
+void (async () => {
+  const root = document.querySelector<HTMLDivElement>("#app");
+  if (root === null) throw new Error("missing #app root element");
+
+  const persistence = createPersistence({});
+  const economy = await createEconomy({ persistence });
+  const achievements = await createAchievements({ persistence });
+  const input = createInput(root);
+
+  const services = {
+    persistence,
+    economy,
+    achievements,
+    input,
+    audio: makeNoOpAudio(),
+  };
+
+  const engine = createEngine(root, { services });
+  engine.register(dropDeckManifest, () => createDropDeckGame());
+
+  createRouter(root, {
+    engine,
+    economy,
+    achievements,
+    registeredGames: [{ manifest: dropDeckManifest }],
+  });
+})();
