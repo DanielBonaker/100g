@@ -97,10 +97,12 @@ describe("resolveEffect — stub strategies throw not implemented", () => {
     expect(result.state.status).toBe("running");
   });
 
-  it("rain strategy throws not implemented", () => {
+  it("rain strategy places 1-cell block at column floor (no longer a stub)", () => {
     const state = makeRunState("seed-1");
     const block = make1x1Block("rain");
     const ctx: PlaceContext = { state, block, column: 3, rng: makeTestRng() };
-    expect(() => resolveEffect(ctx)).toThrow("rain strategy: not implemented");
+    const result = resolveEffect(ctx);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state.status).toBe("running");
   });
 });
