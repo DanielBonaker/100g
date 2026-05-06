@@ -358,3 +358,180 @@ describe("createFusionOverlay — destroy", () => {
     container.remove();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cost labels on target buttons
+// ---------------------------------------------------------------------------
+
+describe("createFusionOverlay — cost labels on target buttons", () => {
+  it("size-6 button shows tier label 'Titan' with no cost number (free)", () => {
+    const overlay = createFusionOverlay();
+    const state = makeRunState();
+    overlay.refresh(state, 0);
+    const btn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-target-size='6']",
+    );
+    // Button text should show the tier label "Titan" (free — no cost appended)
+    expect(btn?.textContent).toContain("Titan");
+    expect(btn?.textContent).not.toContain("100");
+    overlay.destroy();
+  });
+
+  it("size-7 target button text includes '100'", () => {
+    const overlay = createFusionOverlay();
+    const { state } = makeStateWithPair(1, 5, [6, 7]);
+    overlay.refresh(state, 200);
+    const btn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-target-size='7']",
+    );
+    expect(btn?.textContent).toContain("100");
+    overlay.destroy();
+  });
+
+  it("size-8 target button text includes '500'", () => {
+    const overlay = createFusionOverlay();
+    const { state } = makeStateWithPair(1, 5, [6, 7, 8]);
+    overlay.refresh(state, 600);
+    const btn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-target-size='8']",
+    );
+    expect(btn?.textContent).toContain("500");
+    overlay.destroy();
+  });
+
+  it("size-9 target button text includes '2000'", () => {
+    const overlay = createFusionOverlay();
+    const { state } = makeStateWithPair(1, 5, [6, 7, 8, 9]);
+    overlay.refresh(state, 3000);
+    const btn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-target-size='9']",
+    );
+    expect(btn?.textContent).toContain("2000");
+    overlay.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Confirm button gated on balance >= fusionCost
+// ---------------------------------------------------------------------------
+
+describe("createFusionOverlay — confirm button gated on balance", () => {
+  it("confirm button disabled when balance < cost for size 7 (balance=50, cost=100)", () => {
+    const overlay = createFusionOverlay();
+    const { state, instanceA, instanceB } = makeStateWithPair(3, 4, [6, 7]);
+    overlay.refresh(state, 50); // balance=50, cost=100
+
+    // Select target 7
+    overlay.element
+      .querySelector<HTMLButtonElement>("[data-target-size='7']")!
+      .click();
+
+    // Select both inputs
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceA.toString()}"]`,
+      )!
+      .click();
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceB.toString()}"]`,
+      )!
+      .click();
+
+    const confirmBtn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    );
+    expect(confirmBtn?.disabled).toBe(true);
+    overlay.destroy();
+  });
+
+  it("confirm button enabled when balance >= cost for size 7 (balance=100, cost=100)", () => {
+    const overlay = createFusionOverlay();
+    const { state, instanceA, instanceB } = makeStateWithPair(3, 4, [6, 7]);
+    overlay.refresh(state, 100); // balance=100, cost=100
+
+    // Select target 7
+    overlay.element
+      .querySelector<HTMLButtonElement>("[data-target-size='7']")!
+      .click();
+
+    // Select both inputs
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceA.toString()}"]`,
+      )!
+      .click();
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceB.toString()}"]`,
+      )!
+      .click();
+
+    const confirmBtn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    );
+    expect(confirmBtn?.disabled).toBe(false);
+    overlay.destroy();
+  });
+
+  it("confirm button enabled for size 6 even with 0 balance (free)", () => {
+    const overlay = createFusionOverlay();
+    const { state, instanceA, instanceB } = makeStateWithPair(1, 5, [6]);
+    overlay.refresh(state, 0); // balance=0, cost=0
+
+    // Select target 6
+    overlay.element
+      .querySelector<HTMLButtonElement>("[data-target-size='6']")!
+      .click();
+
+    // Select both inputs
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceA.toString()}"]`,
+      )!
+      .click();
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceB.toString()}"]`,
+      )!
+      .click();
+
+    const confirmBtn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    );
+    expect(confirmBtn?.disabled).toBe(false);
+    overlay.destroy();
+  });
+
+  it("refresh() with updated balance re-evaluates confirm button state", () => {
+    const overlay = createFusionOverlay();
+    const { state, instanceA, instanceB } = makeStateWithPair(3, 4, [6, 7]);
+
+    // Low balance — setup confirm should be disabled after selecting
+    overlay.refresh(state, 50);
+    overlay.element
+      .querySelector<HTMLButtonElement>("[data-target-size='7']")!
+      .click();
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceA.toString()}"]`,
+      )!
+      .click();
+    overlay.element
+      .querySelector<HTMLButtonElement>(
+        `[data-instance-id="${instanceB.toString()}"]`,
+      )!
+      .click();
+
+    const confirmBtn = overlay.element.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(true);
+
+    // Now update balance to 200 — confirm should become enabled
+    overlay.refresh(state, 200);
+    expect(confirmBtn.disabled).toBe(false);
+
+    overlay.destroy();
+  });
+});

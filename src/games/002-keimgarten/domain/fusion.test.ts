@@ -394,3 +394,59 @@ describe("fuse — unlockedFusionTiers chain", () => {
     expect(result.state.unlockedFusionTiers).toContain(7);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fusionCost: cost lookup
+// ---------------------------------------------------------------------------
+
+import { fusionCost, FUSION_COST } from "./fusion.ts";
+
+describe("fusionCost — cost lookup", () => {
+  it("fusionCost(6) returns 0", () => {
+    expect(fusionCost(6)).toBe(0);
+  });
+
+  it("fusionCost(7) returns 100", () => {
+    expect(fusionCost(7)).toBe(100);
+  });
+
+  it("fusionCost(8) returns 500", () => {
+    expect(fusionCost(8)).toBe(500);
+  });
+
+  it("fusionCost(9) returns 2000", () => {
+    expect(fusionCost(9)).toBe(2000);
+  });
+
+  it("FUSION_COST record has correct entries for all four sizes", () => {
+    expect(FUSION_COST[6]).toBe(0);
+    expect(FUSION_COST[7]).toBe(100);
+    expect(FUSION_COST[8]).toBe(500);
+    expect(FUSION_COST[9]).toBe(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vollkommen guarantee: size-9 fusion always returns creature id 166
+// ---------------------------------------------------------------------------
+
+describe("fuse — Vollkommen guarantee (size 9 always returns id 166)", () => {
+  it("100 size-9 fusions (4+5 or 3+6 etc.) all return creatureId 166", () => {
+    const rng = makeSeededRng(777);
+    for (let i = 0; i < 100; i++) {
+      const { state, instanceA, instanceB } = makeStateWithPair(4, 5, [9]);
+      const result = fuse(state, instanceA, instanceB, 9, rng);
+      expect(result.success).toBe(true);
+      expect(result.output?.creatureId).toBe(166);
+    }
+  });
+
+  it("size-9 fusion output tier is 9", () => {
+    const rng = makeSeededRng(42);
+    const { state, instanceA, instanceB } = makeStateWithPair(4, 5, [9]);
+    const result = fuse(state, instanceA, instanceB, 9, rng);
+    expect(result.success).toBe(true);
+    const shape = BESTIARY.find((c) => c.id === result.output!.creatureId);
+    expect(shape!.tier).toBe(9);
+  });
+});

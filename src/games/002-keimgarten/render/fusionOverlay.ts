@@ -1,12 +1,13 @@
 import type { RunState } from "../domain/runState.ts";
 import type { FusionTarget } from "../domain/fusion.ts";
+import { fusionCost } from "../domain/fusion.ts";
 import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
 
 export interface FusionOverlay {
   readonly element: HTMLDivElement;
   show(): void;
   hide(): void;
-  refresh(state: RunState): void;
+  refresh(state: RunState, balance?: number): void;
   destroy(): void;
   onConfirm: (
     instanceA: number,
@@ -124,6 +125,7 @@ export const createFusionOverlay = (): FusionOverlay => {
   let selectedA: number | null = null;
   let selectedB: number | null = null;
   let currentState: RunState | null = null;
+  let currentBalance = 0;
 
   let onConfirmCb: (
     instanceA: number,
@@ -150,11 +152,12 @@ export const createFusionOverlay = (): FusionOverlay => {
     }
     const tierA = BESTIARY[ca.creatureId]?.tier;
     const tierB = BESTIARY[cb.creatureId]?.tier;
-    confirmBtn.disabled = !(
+    const sumValid =
       tierA !== undefined &&
       tierB !== undefined &&
-      tierA + tierB === selectedTarget
-    );
+      tierA + tierB === selectedTarget;
+    const cost = fusionCost(selectedTarget);
+    confirmBtn.disabled = !(sumValid && currentBalance >= cost);
   };
 
   const buildInputPicker = (state: RunState): void => {
@@ -272,15 +275,28 @@ export const createFusionOverlay = (): FusionOverlay => {
     }
   };
 
-  const refresh = (state: RunState): void => {
+  const TIER_LABELS: Record<FusionTarget, string> = {
+    6: "Titan",
+    7: "Apex",
+    8: "Archon",
+    9: "Vollkommen",
+  };
+
+  const refresh = (state: RunState, balance = 0): void => {
     currentState = state;
-    // Update target button disabled states
+    currentBalance = balance;
+    // Update target button disabled states and cost labels
     for (const size of FUSION_TARGETS) {
       const btn = targetButtons.get(size);
       if (btn === undefined) continue;
       btn.disabled = !state.unlockedFusionTiers.includes(size);
       btn.style.opacity = btn.disabled ? "0.4" : "1";
+      const cost = fusionCost(size);
+      const label = TIER_LABELS[size];
+      btn.textContent = cost > 0 ? `${label} (${cost.toString()})` : label;
     }
+    // Re-evaluate confirm button in case balance changed
+    updateConfirmBtn();
   };
 
   const destroy = (): void => {
