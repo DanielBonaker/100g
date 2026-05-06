@@ -3,6 +3,8 @@ import type { RunState } from "./runState.ts";
 import type { BoosterTier } from "./runState.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
 import { CATALOG } from "../catalog/blocks.ts";
+import { PASSIVES } from "../catalog/passives.ts";
+import { shuffle } from "./deck.ts";
 
 export type { BoosterTier };
 
@@ -128,5 +130,110 @@ export const pickFromBooster = (state: RunState, block: Block): RunState => {
     ...state,
     deck: [...state.deck, block],
     shopOffer: null,
+    purchasedThisShopVisit: true,
   };
+};
+
+// ---------------------------------------------------------------------------
+// Remove slot — pay REMOVE_COST to see 3 blocks to remove from deck.
+// ---------------------------------------------------------------------------
+
+export const REMOVE_COST = 3;
+export const MIN_DECK_SIZE = 5;
+export const PASSIVE_OFFER_RATE = 0.5;
+
+const removeFirst = <T>(
+  arr: readonly T[],
+  pred: (item: T) => boolean,
+): readonly T[] => {
+  const idx = arr.findIndex(pred);
+  if (idx === -1) return arr;
+  return [...arr.slice(0, idx), ...arr.slice(idx + 1)];
+};
+
+export const generateRemoveOffer = (
+  state: RunState,
+  rng: SeededRng,
+): readonly Block[] => {
+  const allBlocks = [...state.deck, ...state.drawQueue];
+  if (allBlocks.length === 0) return [];
+  const shuffled = shuffle(allBlocks, rng);
+  return shuffled.slice(0, Math.min(3, shuffled.length));
+};
+
+export const purchaseRemove = (state: RunState, rng: SeededRng): RunState => {
+  if (state.status !== "in-shop") return state;
+  if (state.removeOffer !== null) return state;
+  if (state.gold < REMOVE_COST) return state;
+  if (state.deck.length + state.drawQueue.length <= MIN_DECK_SIZE) return state;
+
+  const options = generateRemoveOffer(state, rng);
+  if (options.length === 0) return state;
+
+  return {
+    ...state,
+    gold: state.gold - REMOVE_COST,
+    removeOffer: { options },
+    purchasedThisShopVisit: true,
+    rngState: rng.state,
+  };
+};
+
+export const pickRemove = (state: RunState, blockId: string): RunState => {
+  if (state.removeOffer === null) return state;
+  if (!state.removeOffer.options.some((b) => b.id === blockId)) return state;
+  if (state.deck.length + state.drawQueue.length <= MIN_DECK_SIZE) {
+    // Defensive — clear offer but don't remove
+    return { ...state, removeOffer: null };
+  }
+
+  const newDeck = removeFirst(state.deck, (b) => b.id === blockId);
+  const newDrawQueue =
+    newDeck === state.deck
+      ? removeFirst(state.drawQueue, (b) => b.id === blockId)
+      : state.drawQueue;
+
+  return {
+    ...state,
+    deck: newDeck,
+    drawQueue: newDrawQueue,
+    removeOffer: null,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Passive slot — randomly offer one unowned passive each shop visit.
+// ---------------------------------------------------------------------------
+
+export const generatePassiveOffer = (
+  state: RunState,
+  rng: SeededRng,
+): { passive: string; cost: number } | null => {
+  if (rng.next() >= PASSIVE_OFFER_RATE) return null;
+  const owned = new Set(state.passives);
+  const available = PASSIVES.filter((p) => !owned.has(p.id));
+  if (available.length === 0) return null;
+  const idx = Math.floor(rng.next() * available.length);
+  const picked = available[idx];
+  if (picked === undefined) return null;
+  return { passive: picked.id, cost: picked.cost };
+};
+
+export const acceptPassive = (state: RunState): RunState => {
+  if (state.passiveOffer === null) return state;
+  if (state.gold < state.passiveOffer.cost) return state;
+  if (state.passives.includes(state.passiveOffer.passive)) return state;
+
+  return {
+    ...state,
+    gold: state.gold - state.passiveOffer.cost,
+    passives: [...state.passives, state.passiveOffer.passive],
+    passiveOffer: null,
+    purchasedThisShopVisit: true,
+  };
+};
+
+export const declinePassive = (state: RunState): RunState => {
+  if (state.passiveOffer === null) return state;
+  return { ...state, passiveOffer: null };
 };

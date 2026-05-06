@@ -289,4 +289,85 @@ describe("exitShop", () => {
     // rngState must change because shuffle consumes rng outputs
     expect(result.rngState).not.toBe(inShop.rngState);
   });
+
+  it("Skipper's Bonus adds $8 when owned and no purchase this visit", () => {
+    const inShop = {
+      ...makeRunState("skipper-1"),
+      status: "in-shop" as const,
+      round: 1,
+      clearedRowsThisRound: 5,
+      garbageDropsThisRound: 0,
+      gold: 10,
+      passives: ["skippers-bonus"],
+      purchasedThisShopVisit: false,
+    };
+    const result = exitShop(inShop);
+    expect(result.gold).toBe(18); // 10 + 8
+  });
+
+  it("Skipper's Bonus does NOT fire when purchasedThisShopVisit is true", () => {
+    const inShop = {
+      ...makeRunState("skipper-2"),
+      status: "in-shop" as const,
+      round: 1,
+      clearedRowsThisRound: 5,
+      garbageDropsThisRound: 0,
+      gold: 10,
+      passives: ["skippers-bonus"],
+      purchasedThisShopVisit: true,
+    };
+    const result = exitShop(inShop);
+    expect(result.gold).toBe(10); // no bonus
+  });
+
+  it("no bonus without Skipper's Bonus passive", () => {
+    const inShop = {
+      ...makeRunState("skipper-3"),
+      status: "in-shop" as const,
+      round: 1,
+      clearedRowsThisRound: 5,
+      garbageDropsThisRound: 0,
+      gold: 10,
+      passives: [],
+      purchasedThisShopVisit: false,
+    };
+    const result = exitShop(inShop);
+    expect(result.gold).toBe(10); // no bonus
+  });
+
+  it("clears shopOffer, removeOffer, passiveOffer to null on exit", () => {
+    const block = {
+      id: "1-test-standard",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const inShop = {
+      ...makeRunState("clear-offers"),
+      status: "in-shop" as const,
+      round: 1,
+      clearedRowsThisRound: 5,
+      garbageDropsThisRound: 0,
+      shopOffer: { tier: "small" as const, options: [block] },
+      removeOffer: { options: [block] },
+      passiveOffer: { passive: "row-rebate", cost: 5 },
+    };
+    const result = exitShop(inShop);
+    expect(result.shopOffer).toBeNull();
+    expect(result.removeOffer).toBeNull();
+    expect(result.passiveOffer).toBeNull();
+  });
+
+  it("resets purchasedThisShopVisit to false on exit", () => {
+    const inShop = {
+      ...makeRunState("reset-purchased"),
+      status: "in-shop" as const,
+      round: 1,
+      clearedRowsThisRound: 5,
+      garbageDropsThisRound: 0,
+      purchasedThisShopVisit: true,
+    };
+    const result = exitShop(inShop);
+    expect(result.purchasedThisShopVisit).toBe(false);
+  });
 });
