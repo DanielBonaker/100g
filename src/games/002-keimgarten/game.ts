@@ -22,6 +22,10 @@ import { hitTestCreatures } from "./input/controller.ts";
 import { hueFromId } from "./render/creatureSprite.ts";
 import { BESTIARY } from "../../shared/franchise/bestiary.ts";
 import { getTier } from "../../shared/franchise/types.ts";
+import {
+  createBestiaryOverlay,
+  type BestiaryOverlay,
+} from "./render/bestiaryOverlay.ts";
 
 export { manifest };
 
@@ -70,6 +74,10 @@ export const createKeimgartenGame = (): Game & {
 
   // Input disposer
   let tapDisposer: Disposer | null = null;
+
+  // Bestiary overlay + button
+  let bestiaryOverlay: BestiaryOverlay | null = null;
+  let bestiaryButton: HTMLButtonElement | null = null;
 
   // ---------------------------------------------------------------------------
   // Nameplate + heart particle DOM overlay
@@ -318,6 +326,44 @@ export const createKeimgartenGame = (): Game & {
       handleTap(e.x, e.y);
     });
 
+    // Bestiary button (bottom HUD area)
+    const btn = document.createElement("button");
+    btn.dataset.role = "bestiary-button";
+    btn.textContent = "Bestiary";
+    btn.style.cssText = [
+      "position:absolute",
+      "bottom:4px",
+      "right:4px",
+      "min-width:80px",
+      "min-height:44px",
+      "background:rgba(0,0,0,0.75)",
+      "color:#fff",
+      "font-family:monospace",
+      "font-size:10px",
+      "border:1px solid #888",
+      "border-radius:4px",
+      "cursor:pointer",
+      "z-index:10",
+      "padding:4px 8px",
+      "box-sizing:border-box",
+    ].join(";");
+    container.style.position = "relative";
+    container.appendChild(btn);
+    bestiaryButton = btn;
+
+    // Bestiary overlay
+    const overlay = createBestiaryOverlay();
+    container.appendChild(overlay.element);
+    bestiaryOverlay = overlay;
+
+    // Initial refresh
+    overlay.refresh(runState);
+
+    // Wire button click
+    btn.addEventListener("click", () => {
+      overlay.show();
+    });
+
     // Try Pixi path first
     try {
       const [{ createStage }, { createCreatureSprite }, pixiModule] =
@@ -429,6 +475,16 @@ export const createKeimgartenGame = (): Game & {
     }
     ctx2d = null;
     fallbackSprites.clear();
+
+    // Remove bestiary button and overlay
+    if (bestiaryButton !== null) {
+      bestiaryButton.remove();
+      bestiaryButton = null;
+    }
+    if (bestiaryOverlay !== null) {
+      bestiaryOverlay.destroy();
+      bestiaryOverlay = null;
+    }
 
     container = null;
     persistence = null;

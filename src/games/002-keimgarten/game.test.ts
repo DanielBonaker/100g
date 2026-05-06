@@ -536,3 +536,93 @@ describe("currency yield on teardown", () => {
     await expect(game.teardown()).resolves.not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bestiary button + overlay integration
+// ---------------------------------------------------------------------------
+
+describe("Bestiary button and overlay", () => {
+  it("Bestiary button appears in container after init", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector("[data-role='bestiary-button']");
+    expect(btn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("tapping bestiary button shows the overlay", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='bestiary-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    const overlay = ctx.container.querySelector<HTMLElement>(
+      "[data-role='bestiary-overlay']",
+    );
+    expect(overlay).not.toBeNull();
+
+    // Before click: hidden
+    expect(overlay!.style.display).toBe("none");
+
+    btn!.click();
+
+    // After click: visible
+    expect(overlay!.style.display).not.toBe("none");
+
+    await game.teardown();
+  });
+
+  it("overlay reflects current uniqueOwnedIds (1 owned for fresh state)", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const header = ctx.container.querySelector("[data-role='bestiary-header']");
+    expect(header).not.toBeNull();
+    // Fresh state has 1 creature owned (Keim, id=0)
+    expect(header!.textContent).toContain("1");
+    expect(header!.textContent).toContain("167");
+
+    await game.teardown();
+  });
+
+  it("overlay disappears after teardown", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    await game.teardown();
+
+    const overlay = ctx.container.querySelector(
+      "[data-role='bestiary-overlay']",
+    );
+    expect(overlay).toBeNull();
+  });
+
+  it("Bestiary button hit-target is >= 44x44 px", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='bestiary-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    // In happy-dom, inline styles are the reliable source — check min-width/min-height
+    // The button must have min dimensions of 44x44 enforced via CSS
+    const minW = parseInt(btn!.style.minWidth, 10);
+    const minH = parseInt(btn!.style.minHeight, 10);
+    expect(minW).toBeGreaterThanOrEqual(44);
+    expect(minH).toBeGreaterThanOrEqual(44);
+
+    await game.teardown();
+  });
+});
