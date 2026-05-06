@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildStarterDeck, shuffle, draw, enforceMinMax } from "./deck.ts";
 import { makeRunState } from "./runState.ts";
 import { makeRng } from "./rng.ts";
+import { BESTIARY } from "../../../shared/franchise/index.ts";
 
 // Use the production RNG so bugs in the RNG implementation surface in these tests.
 const makeTestRng = (seed: number) => makeRng(seed);
@@ -27,6 +28,28 @@ describe("buildStarterDeck", () => {
     for (const block of deck) {
       expect(block.cells.length).toBeGreaterThan(0);
       expect(block.cellCount).toBe(block.cells.length);
+    }
+  });
+
+  it("all blocks are Small tier (tier 1-3)", () => {
+    const rng = makeTestRng(1234);
+    const deck = buildStarterDeck(rng);
+    for (const block of deck) {
+      expect(block.bestiaryId).toBeDefined();
+      const entry = BESTIARY[block.bestiaryId!];
+      expect(entry).toBeDefined();
+      expect(entry!.tier).toBeGreaterThanOrEqual(1);
+      expect(entry!.tier).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("every block has a bestiaryId referencing a valid bestiary entry", () => {
+    const rng = makeTestRng(1234);
+    const deck = buildStarterDeck(rng);
+    for (const block of deck) {
+      expect(block.bestiaryId).toBeDefined();
+      const entry = BESTIARY[block.bestiaryId!];
+      expect(entry).toBeDefined();
     }
   });
 });
