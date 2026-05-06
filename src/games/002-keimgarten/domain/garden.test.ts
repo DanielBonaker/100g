@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { applyAction } from "./garden.ts";
 import { makeRunState } from "./runState.ts";
 import type { RunState } from "./runState.ts";
+import { BESTIARY } from "../../../shared/franchise/bestiary.ts";
 
 describe("applyAction — own", () => {
   it("adds a creature to RunState.owned", () => {
@@ -245,5 +246,80 @@ describe("applyAction — tap-creature", () => {
     });
     // The only new field should be totalTapsByCreatureId updated
     expect("currency" in next).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyAction('own') — unlockedFusionTiers update
+// ---------------------------------------------------------------------------
+
+describe("applyAction('own') — unlockedFusionTiers", () => {
+  it("owning a size-5 creature unlocks fusion tier 6", () => {
+    const state = makeRunState();
+    const size5 = BESTIARY.find((c) => c.tier === 5)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size5.id,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.unlockedFusionTiers).toContain(6);
+  });
+
+  it("owning a size-6 creature unlocks fusion tier 7", () => {
+    const state = makeRunState();
+    const size6 = BESTIARY.find((c) => c.tier === 6)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size6.id,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.unlockedFusionTiers).toContain(7);
+  });
+
+  it("owning a size-7 creature unlocks fusion tier 8", () => {
+    const state = makeRunState();
+    const size7 = BESTIARY.find((c) => c.tier === 7)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size7.id,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.unlockedFusionTiers).toContain(8);
+  });
+
+  it("owning a size-8 creature unlocks fusion tier 9", () => {
+    const state = makeRunState();
+    const size8 = BESTIARY.find((c) => c.tier === 8)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size8.id,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.unlockedFusionTiers).toContain(9);
+  });
+
+  it("owning a size-1 creature does NOT change unlockedFusionTiers", () => {
+    const state = makeRunState(); // starter Keim is size-1
+    const size1 = BESTIARY.find((c) => c.tier === 1)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size1.id,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.unlockedFusionTiers).toEqual([]);
+  });
+
+  it("unlock persists even if you already had 6 unlocked", () => {
+    // Start with [6] already; owning a size-5 again should not duplicate
+    const base = makeRunState();
+    const state: RunState = { ...base, unlockedFusionTiers: [6] };
+    const size5 = BESTIARY.find((c) => c.tier === 5)!;
+    const next = applyAction(state, {
+      type: "own",
+      creatureId: size5.id,
+      position: { x: 10, y: 10 },
+    });
+    const count6 = next.unlockedFusionTiers.filter((t) => t === 6).length;
+    expect(count6).toBe(1);
   });
 });

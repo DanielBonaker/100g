@@ -786,6 +786,28 @@ describe("Shop button and overlay", () => {
     await game.teardown();
   });
 
+  it("buying size 5 unlocks fusion tier 6 in runState", async () => {
+    const economy = makeMockEconomy(500); // enough for size-5 (120)
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const shopBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    );
+    shopBtn!.click();
+
+    const size5Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='5']");
+    expect(size5Btn).not.toBeNull();
+    size5Btn!.click();
+
+    const afterState = game.__getRunState();
+    expect(afterState.unlockedFusionTiers).toContain(6);
+
+    await game.teardown();
+  });
+
   it("HUD balance text updates after a purchase", async () => {
     const economy = makeMockEconomy(50);
     const ctx = makeCtx(undefined, undefined, economy);
@@ -813,6 +835,167 @@ describe("Shop button and overlay", () => {
 
     // Balance should now show 47
     expect(balanceEl!.textContent).toContain("47");
+
+    await game.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fusion button + overlay integration
+// ---------------------------------------------------------------------------
+
+describe("Fusion button and overlay", () => {
+  it("Fusion button appears in container after init", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector("[data-role='fusion-button']");
+    expect(btn).not.toBeNull();
+
+    await game.teardown();
+  });
+
+  it("Fusion button hit-target is >= 44x44 px", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    const minW = parseInt(btn!.style.minWidth, 10);
+    const minH = parseInt(btn!.style.minHeight, 10);
+    expect(minW).toBeGreaterThanOrEqual(44);
+    expect(minH).toBeGreaterThanOrEqual(44);
+
+    await game.teardown();
+  });
+
+  it("clicking Fusion button shows the fusion overlay", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    const btn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    );
+    expect(btn).not.toBeNull();
+
+    const overlay = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    );
+    expect(overlay).not.toBeNull();
+
+    // Before click: hidden
+    expect(overlay!.style.display).toBe("none");
+    btn!.click();
+    // After click: visible
+    expect(overlay!.style.display).not.toBe("none");
+
+    await game.teardown();
+  });
+
+  it("fusion overlay disappears after teardown", async () => {
+    const ctx = makeCtx();
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+    await game.teardown();
+
+    const overlay = ctx.container.querySelector("[data-role='fusion-overlay']");
+    expect(overlay).toBeNull();
+  });
+
+  it("successful fusion via overlay deducts inputs and adds output", async () => {
+    // Give enough balance to buy two size-5 creatures (which unlocks tier 6)
+    const economy = makeMockEconomy(1000);
+    const ctx = makeCtx(undefined, undefined, economy);
+    const game = createKeimgartenGame();
+    await game.init(ctx);
+
+    // Buy a size-1 and size-5 creature (so we have a 1+5=6 valid pair)
+    // First, buy size 5 to unlock tier 6
+    const shopBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='shop-button']",
+    )!;
+    shopBtn.click();
+    const size5Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='5']")!;
+    size5Btn.click();
+
+    // Now buy a size 1 creature
+    shopBtn.click();
+    const size1Btn =
+      ctx.container.querySelector<HTMLButtonElement>("[data-size='1']")!;
+    size1Btn.click();
+
+    // We now have at least: starter Keim (tier-1), + 1 tier-5, + 1 tier-1 (from shop)
+    // The tier-5 purchase should have unlocked tier 6
+    const stateBeforeFusion = game.__getRunState();
+    expect(stateBeforeFusion.unlockedFusionTiers).toContain(6);
+
+    // Find a valid pair (tier-1 instance + tier-5 instance)
+    const { BESTIARY: B } = await import("../../shared/franchise/bestiary.ts");
+    const size5Instance = stateBeforeFusion.owned.find((c) => {
+      const shape = B.find((s) => s.id === c.creatureId);
+      return shape?.tier === 5;
+    });
+    const size1Instances = stateBeforeFusion.owned.filter((c) => {
+      const shape = B.find((s) => s.id === c.creatureId);
+      return shape?.tier === 1;
+    });
+    expect(size5Instance).toBeDefined();
+    expect(size1Instances.length).toBeGreaterThanOrEqual(1);
+
+    const size1Instance = size1Instances[0]!;
+    const countBefore = stateBeforeFusion.owned.length;
+
+    // Open fusion overlay
+    const fusionBtn = ctx.container.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-button']",
+    )!;
+    fusionBtn.click();
+
+    const fusionOverlay = ctx.container.querySelector<HTMLElement>(
+      "[data-role='fusion-overlay']",
+    )!;
+    expect(fusionOverlay.style.display).not.toBe("none");
+
+    // Select target 6
+    const targetBtn = fusionOverlay.querySelector<HTMLButtonElement>(
+      "[data-target-size='6']",
+    )!;
+    targetBtn.click();
+
+    // Select size-1 input
+    const inputA = fusionOverlay.querySelector<HTMLButtonElement>(
+      `[data-instance-id="${size1Instance.instanceId.toString()}"]`,
+    )!;
+    inputA.click();
+
+    // Select size-5 input
+    const inputB = fusionOverlay.querySelector<HTMLButtonElement>(
+      `[data-instance-id="${size5Instance!.instanceId.toString()}"]`,
+    )!;
+    inputB.click();
+
+    // Click confirm
+    const confirmBtn = fusionOverlay.querySelector<HTMLButtonElement>(
+      "[data-role='fusion-confirm']",
+    )!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+
+    // After fusion: count changes by net -1 (2 removed, 1 added)
+    const stateAfterFusion = game.__getRunState();
+    expect(stateAfterFusion.owned.length).toBe(countBefore - 1);
+
+    // Both original instances gone
+    const ownedIds = stateAfterFusion.owned.map((c) => c.instanceId);
+    expect(ownedIds).not.toContain(size1Instance.instanceId);
+    expect(ownedIds).not.toContain(size5Instance!.instanceId);
 
     await game.teardown();
   });
