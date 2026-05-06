@@ -6,6 +6,13 @@ import { buildStarterDeck, shuffle } from "./deck.ts";
 
 export type RunStatus = "running" | "in-shop" | "ended";
 
+export type BoosterTier = "small" | "medium" | "large";
+
+export interface ActiveShopOffer {
+  readonly tier: BoosterTier;
+  readonly options: readonly Block[];
+}
+
 export interface RunState {
   // Board geometry
   readonly board: Board;
@@ -38,6 +45,9 @@ export interface RunState {
 
   // Achievements
   readonly achievementsUnlockedThisRun: readonly string[]; // placeholder for #29
+
+  // Shop offer — set when a booster is purchased, cleared on pick or exit
+  readonly shopOffer: ActiveShopOffer | null;
 
   // End state
   readonly endedReason: "spawn-collision" | "garbage-shift" | null;
@@ -72,6 +82,7 @@ export const makeRunState = (rngSeed?: string): RunState => {
     gold: 0,
     garbageDropsThisRound: 0,
     achievementsUnlockedThisRun: [],
+    shopOffer: null,
     endedReason: null,
   };
 };
@@ -131,6 +142,15 @@ export const isRunState = (value: unknown): value is RunState => {
     v.endedReason !== "garbage-shift"
   ) {
     return false;
+  }
+
+  // shopOffer: null or an object with tier + options
+  if (v.shopOffer !== null && v.shopOffer !== undefined) {
+    if (typeof v.shopOffer !== "object") return false;
+    const so = v.shopOffer as Record<string, unknown>;
+    if (so.tier !== "small" && so.tier !== "medium" && so.tier !== "large")
+      return false;
+    if (!Array.isArray(so.options)) return false;
   }
 
   return true;
