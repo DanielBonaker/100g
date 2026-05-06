@@ -1,5 +1,23 @@
 export type FranchiseTier = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
+export interface Tier {
+  readonly label: string;
+  readonly sub: string;
+  readonly hex: string;
+}
+
+// Stub — replaced in GREEN commit
+export const TIERS: Readonly<Record<FranchiseTier, Tier>> = {} as Readonly<
+  Record<FranchiseTier, Tier>
+>;
+
+export const isFranchiseTier = (n: number): n is FranchiseTier =>
+  Number.isInteger(n) && n >= 1 && n <= 9;
+
+export const getTier = (size: number): Tier => {
+  throw new Error(`getTier: stub — not implemented (size ${size.toString()})`);
+};
+
 export type Cell = readonly [row: number, col: number];
 
 export interface CreatureShape {
