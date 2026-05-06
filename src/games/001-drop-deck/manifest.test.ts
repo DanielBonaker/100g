@@ -30,7 +30,7 @@ describe("Drop Deck manifest", () => {
   });
 
   it("currencyYield returns a non-negative number for a state with commits", () => {
-    const state = { ...makeRunState(), committedCells: 50 };
+    const state = { ...makeRunState(), committedBlocks: 50 };
     const result = manifest.currencyYield(state);
     expect(result).toBeGreaterThanOrEqual(0);
   });

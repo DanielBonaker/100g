@@ -22,5 +22,3 @@ export const resolveEffect = (ctx: PlaceContext): PlaceResult => {
   const strategy = REGISTRY[ctx.block.effectId];
   return strategy.resolve(ctx);
 };
-
-export { REGISTRY };

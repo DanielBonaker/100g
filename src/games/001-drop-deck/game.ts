@@ -173,12 +173,12 @@ export const createDropDeckGame = (): Game & { __getRunState(): RunState } => {
     // Wire input handlers
     const tapDisposer = ctx.services.input.onTap(() => {
       if (runState.status === "ended") return;
-      const prevCommitted = runState.committedCells;
+      const prevCommitted = runState.committedBlocks;
       const result = commitActive(runState, rng);
       runState = result.state;
       // Commit-save: debounced 50 ms. Only fires when a new cell was placed
       // (not a top-out or out-of-bounds no-op).
-      if (runState.committedCells > prevCommitted && persistence !== null) {
+      if (runState.committedBlocks > prevCommitted && persistence !== null) {
         void persistence.save("drop-deck-run", runState, { debounceMs: 50 });
       }
       // toppedOut is reflected in runState.status — no separate event needed

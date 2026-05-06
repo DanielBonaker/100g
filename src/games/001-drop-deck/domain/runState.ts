@@ -1,5 +1,5 @@
-import type { Board, Cell } from "./boardTypes.ts";
-import { BOARD_COLS, BOARD_ROWS } from "./boardTypes.ts";
+import type { Board } from "./boardTypes.ts";
+import { emptyBoard, BOARD_COLS, BOARD_ROWS } from "./boardTypes.ts";
 import type { Block } from "./block.ts";
 import { makeRng } from "./rng.ts";
 import { buildStarterDeck, shuffle } from "./deck.ts";
@@ -11,7 +11,7 @@ export interface RunState {
   readonly board: Board;
   readonly activeColumn: number;
   readonly status: RunStatus;
-  readonly committedCells: number;
+  readonly committedBlocks: number;
   readonly nextCellId: number;
 
   // RNG state — serialized for save/restore
@@ -43,18 +43,6 @@ export interface RunState {
   readonly endedReason: "spawn-collision" | "garbage-shift" | null;
 }
 
-const emptyBoardArr = (): Board => {
-  const rows: (readonly Cell[])[] = [];
-  for (let r = 0; r < BOARD_ROWS; r++) {
-    const row: Cell[] = [];
-    for (let c = 0; c < BOARD_COLS; c++) {
-      row.push(null);
-    }
-    rows.push(row);
-  }
-  return rows;
-};
-
 export const makeRunState = (rngSeed?: string): RunState => {
   const rng = makeRng(rngSeed ?? String(Date.now()));
   const deck = buildStarterDeck(rng);
@@ -65,12 +53,13 @@ export const makeRunState = (rngSeed?: string): RunState => {
     active !== null ? shuffled.slice(1) : shuffled;
 
   return {
-    board: emptyBoardArr(),
+    board: emptyBoard(),
     activeColumn: 4,
     status: "running",
-    committedCells: 0,
+    committedBlocks: 0,
     nextCellId: 1,
     rngState: rng.state,
+    // Deck is empty by default; the game seeds via buildStarterDeck on init. Once the starter deck cycles, reshuffle from drawQueue (see #25 for shop-driven deck additions).
     deck: [],
     drawQueue,
     active,
@@ -119,7 +108,7 @@ export const isRunState = (value: unknown): value is RunState => {
   if (typeof v.activeColumn !== "number") return false;
   if (v.activeColumn < 0 || v.activeColumn >= BOARD_COLS) return false;
   if (v.status !== "running" && v.status !== "ended") return false;
-  if (typeof v.committedCells !== "number" || v.committedCells < 0)
+  if (typeof v.committedBlocks !== "number" || v.committedBlocks < 0)
     return false;
   if (typeof v.nextCellId !== "number" || v.nextCellId < 1) return false;
 

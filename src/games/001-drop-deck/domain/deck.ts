@@ -78,7 +78,6 @@ export const draw = (
  */
 export const enforceMinMax = (
   deck: readonly Block[],
-  _min: number,
   max: number,
 ): readonly Block[] => {
   if (deck.length > max) return deck.slice(0, max);

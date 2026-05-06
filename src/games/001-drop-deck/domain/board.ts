@@ -1,5 +1,5 @@
-export { BOARD_COLS, BOARD_ROWS, CENTER_COL } from "./boardTypes.ts";
-import { BOARD_COLS, BOARD_ROWS, CENTER_COL } from "./boardTypes.ts";
+export { BOARD_COLS, BOARD_ROWS, SPAWN_COL, emptyBoard } from "./boardTypes.ts";
+import { BOARD_COLS, BOARD_ROWS, SPAWN_COL } from "./boardTypes.ts";
 
 export type { Cell, Board } from "./boardTypes.ts";
 import type { Cell, Board } from "./boardTypes.ts";
@@ -19,18 +19,6 @@ export interface DropResult {
   readonly state: RunState;
   readonly toppedOut: boolean;
 }
-
-export const emptyBoard = (): Board => {
-  const rows: Cell[][] = [];
-  for (let r = 0; r < BOARD_ROWS; r++) {
-    const row: Cell[] = [];
-    for (let c = 0; c < BOARD_COLS; c++) {
-      row.push(null);
-    }
-    rows.push(row);
-  }
-  return rows;
-};
 
 // ---------------------------------------------------------------------------
 // place — legacy single-cell placement (backward compat for game.ts + tests).
@@ -90,9 +78,9 @@ export const place = (state: RunState, column: number): DropResult => {
     state: {
       ...state,
       board: cleared.board,
-      activeColumn: CENTER_COL,
+      activeColumn: SPAWN_COL,
       status: "running",
-      committedCells: state.committedCells + 1,
+      committedBlocks: state.committedBlocks + 1,
       nextCellId: cellId + 1,
       clearedRowsThisRun: state.clearedRowsThisRun + cleared.clearedCount,
     },
@@ -266,10 +254,13 @@ export const commitActive = (
 
   // Draw the next block from the queue
   const drawn = draw(result.state, rng);
+  // Persist rng.state AFTER all RNG operations (shuffle/draw) so cross-session
+  // restore replays from the correct position rather than replaying from start.
   const nextState: RunState = {
     ...drawn.state,
     active: drawn.drew,
-    activeColumn: CENTER_COL,
+    activeColumn: SPAWN_COL,
+    rngState: rng.state,
   };
 
   return { state: nextState, toppedOut: false, reason: null };

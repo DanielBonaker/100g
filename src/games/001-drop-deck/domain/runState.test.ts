@@ -23,9 +23,9 @@ describe("makeRunState", () => {
     }
   });
 
-  it("committedCells starts at 0", () => {
+  it("committedBlocks starts at 0", () => {
     const state = makeRunState();
-    expect(state.committedCells).toBe(0);
+    expect(state.committedBlocks).toBe(0);
   });
 
   it("nextCellId starts at 1", () => {
@@ -95,7 +95,7 @@ describe("isRunState", () => {
       })(),
       activeColumn: 4,
       status: "running",
-      committedCells: 0,
+      committedBlocks: 0,
       nextCellId: 1,
       // deliberately missing: rngState, deck, drawQueue, active, hold, etc.
     };

@@ -21,5 +21,5 @@ export const manifest: GameManifest<RunState> = {
       criterion: "Commit 100 blocks without topping out",
     },
   ],
-  currencyYield: (state) => Math.min(state.committedCells, 100),
+  currencyYield: (state) => Math.min(state.committedBlocks, 100),
 };

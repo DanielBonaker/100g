@@ -2,7 +2,7 @@ import type { EffectStrategy, PlaceContext, PlaceResult } from "../types.ts";
 import {
   BOARD_COLS,
   BOARD_ROWS,
-  CENTER_COL,
+  SPAWN_COL,
   placeBlockAtCells,
   clearFullRows,
 } from "../../board.ts";
@@ -78,9 +78,9 @@ export const standardStrategy: EffectStrategy = {
     const nextState = {
       ...state,
       board: cleared.board,
-      activeColumn: CENTER_COL,
+      activeColumn: SPAWN_COL,
       status: "running" as const,
-      committedCells: state.committedCells + 1,
+      committedBlocks: state.committedBlocks + 1,
       nextCellId: placed.nextCellId,
       clearedRowsThisRun: state.clearedRowsThisRun + cleared.clearedCount,
       clearedRowsThisRound: state.clearedRowsThisRound + cleared.clearedCount,

@@ -8,9 +8,11 @@ import {
   clearFullRows,
   connectedCells,
   commitActive,
+  emptyBoard,
 } from "./board.ts";
 import type { Board, Cell } from "./board.ts";
 import type { SeededRng } from "../../../engine/Game.ts";
+import { makeRng, makeRngFromState } from "./rng.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal RNG stub
@@ -28,18 +30,11 @@ const stubRng: SeededRng = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a board with all cells null */
-const emptyBoardArr = (): Cell[][] => {
-  const board: Cell[][] = [];
-  for (let r = 0; r < BOARD_ROWS; r++) {
-    const row: Cell[] = [];
-    for (let c = 0; c < BOARD_COLS; c++) {
-      row.push(null);
-    }
-    board.push(row);
-  }
-  return board;
-};
+/**
+ * Build a mutable copy of an empty board for test setup.
+ * Uses the production emptyBoard() from boardTypes.ts, then widens to mutable.
+ */
+const emptyBoardArr = (): Cell[][] => emptyBoard() as Cell[][];
 
 /** Fill an entire row (all BOARD_COLS cells) with id=1 cells */
 const fillRow = (board: Cell[][], row: number): void => {
@@ -54,7 +49,7 @@ describe("makeRunState", () => {
     const center = makeRunState().activeColumn;
     expect(state.activeColumn).toBe(center);
     expect(state.status).toBe("running");
-    expect(state.committedCells).toBe(0);
+    expect(state.committedBlocks).toBe(0);
     expect(state.board).toHaveLength(BOARD_ROWS);
     expect(state.board[0]).toHaveLength(BOARD_COLS);
   });
@@ -98,12 +93,12 @@ describe("place", () => {
     expect(result.state.board[0]![2]).toBeNull();
   });
 
-  it("increments committedCells on each successful placement", () => {
+  it("increments committedBlocks on each successful placement", () => {
     const state = makeRunState();
     const r1 = place(state, 0);
-    expect(r1.state.committedCells).toBe(1);
+    expect(r1.state.committedBlocks).toBe(1);
     const r2 = place(r1.state, 1);
-    expect(r2.state.committedCells).toBe(2);
+    expect(r2.state.committedBlocks).toBe(2);
   });
 
   it("resets activeColumn to center after each commit", () => {
@@ -184,9 +179,9 @@ describe("place", () => {
       state = result.state;
     }
     expect(state.status).toBe("ended");
-    const committedBefore = state.committedCells;
+    const committedBefore = state.committedBlocks;
     const result = place(state, 2);
-    expect(result.state.committedCells).toBe(committedBefore);
+    expect(result.state.committedBlocks).toBe(committedBefore);
     expect(result.state.status).toBe("ended");
   });
 });
@@ -376,6 +371,7 @@ describe("commitActive", () => {
     expect(result.reason).toBeNull();
   });
 
+  // Realistic scenario: fills column 4 via repeated commitActive calls, then verifies top-out.
   it("top-out parity — spawn-collision: both board end state fields set consistently", () => {
     // Build a state where the active column is entirely full → spawn-collision
     let state = makeRunState("seed-parity");
@@ -407,6 +403,7 @@ describe("commitActive", () => {
     expect(result.reason).toBe("spawn-collision");
   });
 
+  // Direct edge case: board is pre-populated synthetically — no commitActive calls needed.
   it("spawn-collision via full column — top-out produces consistent state shape", () => {
     // Fill all 16 rows of column 4 so no row is available for the active block.
     // The standard strategy should return spawn-collision because no row fits.
@@ -430,5 +427,28 @@ describe("commitActive", () => {
     expect(result.reason).toBe("spawn-collision");
     expect(result.state.endedReason).toBe("spawn-collision");
     expect(result.state.status).toBe("ended");
+  });
+
+  it("rngState in returned state matches the RNG position after commit (determinism preserved)", () => {
+    // Use a real seeded RNG so we can track state advancement.
+    const rng = makeRng("abc");
+    const base = makeRunState("abc");
+    const active = {
+      id: "std-1x1-rng",
+      cellCount: 1,
+      cells: [{ dx: 0, dy: 0 }],
+      effectId: "standard" as const,
+    };
+    const state = { ...base, active, activeColumn: 3 };
+    const result = commitActive(state, rng);
+    expect(result.toppedOut).toBe(false);
+
+    // The rngState saved in result.state must match rng.state right after commit.
+    // Re-create an RNG from the saved state and advance it; then advance the
+    // live rng by one step. Both must produce the same value.
+    const restoredRng = makeRngFromState(result.state.rngState);
+    const fromRestored = restoredRng.next();
+    const fromLive = rng.next();
+    expect(fromRestored).toBe(fromLive);
   });
 });

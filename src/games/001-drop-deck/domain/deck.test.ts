@@ -1,33 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { buildStarterDeck, shuffle, draw, enforceMinMax } from "./deck.ts";
 import { makeRunState } from "./runState.ts";
-import type { SeededRng } from "../../../engine/Game.ts";
+import { makeRng } from "./rng.ts";
 
-// ---------------------------------------------------------------------------
-// Minimal seeded RNG for tests — deterministic mulberry32-style
-// ---------------------------------------------------------------------------
-
-const makeTestRng = (seed: number): SeededRng => {
-  let s = seed;
-  const next = (): number => {
-    s = (s + 0x6d2b79f5) | 0;
-    let z = s;
-    z = Math.imul(z ^ (z >>> 15), z | 1);
-    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
-    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
-  };
-  return {
-    next,
-    int: (min: number, max: number) =>
-      Math.floor(next() * (max - min + 1)) + min,
-    fork: function () {
-      return makeTestRng((s + 1) | 0);
-    },
-    get state() {
-      return String(s);
-    },
-  };
-};
+// Use the production RNG so bugs in the RNG implementation surface in these tests.
+const makeTestRng = (seed: number) => makeRng(seed);
 
 describe("buildStarterDeck", () => {
   it("returns 8 blocks", () => {
@@ -121,21 +98,21 @@ describe("enforceMinMax", () => {
   it("returns the deck unchanged when within bounds", () => {
     const rng = makeTestRng(1);
     const deck = buildStarterDeck(rng); // 8 blocks
-    const result = enforceMinMax(deck, 5, 20);
+    const result = enforceMinMax(deck, 20);
     expect(result.length).toBe(deck.length);
   });
 
   it("truncates the deck when above maxSize", () => {
     const rng = makeTestRng(1);
     const deck = buildStarterDeck(rng); // 8 blocks
-    const result = enforceMinMax(deck, 5, 6);
+    const result = enforceMinMax(deck, 6);
     expect(result.length).toBe(6);
   });
 
-  it("does not modify when at exactly minSize", () => {
+  it("does not modify when at exactly maxSize", () => {
     const rng = makeTestRng(1);
     const deck = buildStarterDeck(rng).slice(0, 5);
-    const result = enforceMinMax(deck, 5, 20);
+    const result = enforceMinMax(deck, 5);
     expect(result.length).toBe(5);
   });
 });
