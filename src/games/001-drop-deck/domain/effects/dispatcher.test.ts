@@ -70,11 +70,13 @@ describe("resolveEffect — standard strategy", () => {
 });
 
 describe("resolveEffect — stub strategies throw not implemented", () => {
-  it("ghost strategy throws not implemented", () => {
+  it("ghost strategy places block at deepest valid row (no longer a stub)", () => {
     const state = makeRunState("seed-1");
     const block = make1x1Block("ghost");
     const ctx: PlaceContext = { state, block, column: 3, rng: makeTestRng() };
-    expect(() => resolveEffect(ctx)).toThrow("ghost strategy: not implemented");
+    const result = resolveEffect(ctx);
+    expect(result.toppedOut).toBe(false);
+    expect(result.state.status).toBe("running");
   });
 
   it("melt strategy throws not implemented", () => {
