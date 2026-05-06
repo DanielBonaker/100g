@@ -12,6 +12,10 @@ import {
   createDropDeckGame,
   manifest as dropDeckManifest,
 } from "./games/001-drop-deck/index.ts";
+import {
+  createHelloWorldGame,
+  manifest as helloWorldManifest,
+} from "./games/000-hello-world/index.ts";
 
 // Temporary no-op audio stub — real service ships with issue #30.
 function makeNoOpAudio(): Audio {
@@ -41,11 +45,15 @@ void (async () => {
 
   const engine = createEngine(root, { services });
   engine.register(dropDeckManifest, () => createDropDeckGame());
+  engine.register(helloWorldManifest, () => createHelloWorldGame());
 
   createRouter(root, {
     engine,
     economy,
     achievements,
-    registeredGames: [{ manifest: dropDeckManifest }],
+    registeredGames: [
+      { manifest: dropDeckManifest },
+      { manifest: helloWorldManifest },
+    ],
   });
 })();

@@ -259,7 +259,7 @@ describe("createHelloWorldGame — achievements", () => {
     const achievements = makeSpyAchievements();
     const persistence: Persistence = {
       save: () => Promise.resolve(),
-      load: (_key) => Promise.resolve(90 as unknown),
+      load: <T>(_key: string) => Promise.resolve(90 as unknown as T | null),
       delete: () => Promise.resolve(),
     };
     const ctx = makeCtx(fake.inputService, { achievements, persistence });
@@ -313,7 +313,8 @@ describe("createHelloWorldGame — cross-session restore", () => {
     const fake = makeFakeInput();
     const persistence: Persistence = {
       save: () => Promise.resolve(),
-      load: (_key) => Promise.resolve(savedTaps as unknown),
+      load: <T>(_key: string) =>
+        Promise.resolve(savedTaps as unknown as T | null),
       delete: () => Promise.resolve(),
     };
     const ctx = makeCtx(fake.inputService, { persistence });
@@ -327,7 +328,7 @@ describe("createHelloWorldGame — cross-session restore", () => {
     const fake = makeFakeInput();
     const persistence: Persistence = {
       save: () => Promise.resolve(),
-      load: (_key) => Promise.resolve(99 as unknown),
+      load: <T>(_key: string) => Promise.resolve(99 as unknown as T | null),
       delete: () => Promise.resolve(),
     };
     const ctx = makeCtx(fake.inputService, { persistence });
