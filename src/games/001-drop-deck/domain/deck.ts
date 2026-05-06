@@ -1,6 +1,7 @@
 import type { SeededRng } from "../../../engine/Game.ts";
 import type { Block } from "./block.ts";
 import type { RunState } from "./runState.ts";
+import { CATALOG } from "../catalog/blocks.ts";
 
 export interface DeckOptions {
   readonly minSize?: number;
@@ -8,20 +9,6 @@ export interface DeckOptions {
 }
 
 const STARTER_DECK_SIZE = 8;
-
-/** Build the initial starter deck of standard 1×1 blocks. */
-export const buildStarterDeck = (_rng: SeededRng): readonly Block[] => {
-  const deck: Block[] = [];
-  for (let i = 0; i < STARTER_DECK_SIZE; i++) {
-    deck.push({
-      id: `std-1x1-${String(i + 1)}`,
-      cellCount: 1,
-      cells: [{ dx: 0, dy: 0 }],
-      effectId: "standard",
-    });
-  }
-  return deck;
-};
 
 /** Fisher-Yates shuffle — pure (returns new array), deterministic per seed. */
 export const shuffle = <T>(
@@ -36,6 +23,17 @@ export const shuffle = <T>(
     arr[j] = tmp as T;
   }
   return arr;
+};
+
+/** Build the initial starter deck — 8 Small-tier (1-3) Standard blocks from the catalog. */
+export const buildStarterDeck = (rng: SeededRng): readonly Block[] => {
+  const candidates = CATALOG.filter(
+    (b) =>
+      b.effectId === "standard" &&
+      (b.id.startsWith("1-") || b.id.startsWith("2-") || b.id.startsWith("3-")),
+  );
+  const picked = shuffle(candidates, rng).slice(0, STARTER_DECK_SIZE);
+  return picked;
 };
 
 /**

@@ -369,10 +369,23 @@ const makeCtxWithSpies = (
   };
 };
 
+// A minimal 1×1 standard test-fixture block (not from the catalog — this is
+// a test helper ensuring the row-clear tap is deterministic regardless of
+// which catalog shapes the starter deck draws).
+const TEST_1X1_BLOCK = {
+  id: "test-1x1-standard",
+  cellCount: 1,
+  cells: [{ dx: 0, dy: 0 }],
+  effectId: "standard",
+} as const;
+
 /**
  * Build a valid RunState with 7 of 8 columns filled in the bottom row
  * (columns 0-3 and 5-7) so that one tap at column 4 (spawn) will clear
  * the row and push clearedRowsThisRun over the threshold.
+ *
+ * The active block is pinned to a 1×1 test fixture so the tap is
+ * deterministic regardless of which catalog shapes the starter deck draws.
  */
 const makeStateWithAlmostFullBottomRow = (
   clearedRowsThisRun: number,
@@ -391,6 +404,7 @@ const makeStateWithAlmostFullBottomRow = (
     ...base,
     board,
     activeColumn: 4,
+    active: TEST_1X1_BLOCK,
     clearedRowsThisRun,
     highestRoundReached,
     round,
