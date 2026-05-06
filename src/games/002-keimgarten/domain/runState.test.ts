@@ -3,9 +3,11 @@ import {
   makeRunState,
   isRunState,
   normalizeRunState,
+  computeUnlockedTiers,
   SCHEMA_VERSION,
   STARTER_INSTANCE_ID,
 } from "./runState.ts";
+import type { RunState } from "./runState.ts";
 import { applyAction } from "./garden.ts";
 
 describe("makeRunState", () => {
@@ -147,6 +149,97 @@ describe("normalizeRunState — uniqueOwnedIds backfill", () => {
     const raw: unknown = { ...s, uniqueOwnedIds: [0, 1, 5] };
     const normalized = normalizeRunState(raw);
     expect(normalized.uniqueOwnedIds).toEqual([0, 1, 5]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unlockedFusionTiers field
+// ---------------------------------------------------------------------------
+
+describe("makeRunState — unlockedFusionTiers", () => {
+  it("initializes unlockedFusionTiers to []", () => {
+    const s = makeRunState();
+    expect(s.unlockedFusionTiers).toEqual([]);
+  });
+});
+
+describe("isRunState — unlockedFusionTiers", () => {
+  it("returns true when unlockedFusionTiers is absent (optional)", () => {
+    const s = makeRunState();
+    // remove field
+    const { unlockedFusionTiers: _uf, ...rest } = s as RunState & {
+      unlockedFusionTiers?: unknown;
+    };
+    // absent is fine — normalizeRunState will fill it in
+    expect(isRunState(rest as unknown)).toBe(true);
+  });
+
+  it("returns false when unlockedFusionTiers is not an array", () => {
+    const s = makeRunState();
+    expect(isRunState({ ...s, unlockedFusionTiers: "bad" })).toBe(false);
+  });
+
+  it("returns false when unlockedFusionTiers contains a non-number", () => {
+    const s = makeRunState();
+    expect(isRunState({ ...s, unlockedFusionTiers: ["six"] })).toBe(false);
+  });
+});
+
+describe("normalizeRunState — unlockedFusionTiers backfill", () => {
+  it("defaults missing unlockedFusionTiers to []", () => {
+    const s = makeRunState();
+    const raw: unknown = { ...s, unlockedFusionTiers: undefined };
+    const normalized = normalizeRunState(raw);
+    expect(normalized.unlockedFusionTiers).toEqual([]);
+  });
+
+  it("preserves existing unlockedFusionTiers when present", () => {
+    const s = makeRunState();
+    const raw: unknown = { ...s, unlockedFusionTiers: [6, 7] };
+    const normalized = normalizeRunState(raw);
+    expect(normalized.unlockedFusionTiers).toEqual([6, 7]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeUnlockedTiers helper
+// ---------------------------------------------------------------------------
+
+describe("computeUnlockedTiers", () => {
+  it("owning tier 5 adds 6 to the list", () => {
+    expect(computeUnlockedTiers([], 5)).toEqual([6]);
+  });
+
+  it("owning tier 6 adds 7 to the list", () => {
+    expect(computeUnlockedTiers([6], 6)).toEqual([6, 7]);
+  });
+
+  it("owning tier 7 adds 8 to the list", () => {
+    expect(computeUnlockedTiers([6, 7], 7)).toEqual([6, 7, 8]);
+  });
+
+  it("owning tier 8 adds 9 to the list", () => {
+    expect(computeUnlockedTiers([6, 7, 8], 8)).toEqual([6, 7, 8, 9]);
+  });
+
+  it("owning tier 1..4 does not change the list (no fusion unlock)", () => {
+    for (let t = 1; t <= 4; t++) {
+      expect(computeUnlockedTiers([], t)).toEqual([]);
+    }
+  });
+
+  it("owning tier 9 does not add tier 10 (cap at 9)", () => {
+    expect(computeUnlockedTiers([6, 7, 8, 9], 9)).toEqual([6, 7, 8, 9]);
+  });
+
+  it("already-unlocked tier is not duplicated", () => {
+    expect(computeUnlockedTiers([6], 5)).toEqual([6]); // 6 already present
+  });
+
+  it("result is sorted ascending", () => {
+    // Simulate out-of-order: if somehow current=[7] and we unlock 6
+    const result = computeUnlockedTiers([7], 5);
+    expect(result).toEqual([6, 7]);
   });
 });
 
