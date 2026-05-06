@@ -75,6 +75,12 @@ export const exitShop = (state: RunState): RunState => {
   const combinedPool = [...state.deck, ...state.drawQueue];
   const reshuffled = shuffle(combinedPool, rng);
 
+  // Skipper's Bonus: +$8 if owned and no purchase was made this visit.
+  const skipperBonus =
+    state.passives.includes("skippers-bonus") && !state.purchasedThisShopVisit
+      ? 8
+      : 0;
+
   return {
     ...state,
     status: "running",
@@ -84,5 +90,10 @@ export const exitShop = (state: RunState): RunState => {
     deck: reshuffled,
     drawQueue: [],
     rngState: rng.state,
+    gold: state.gold + skipperBonus,
+    shopOffer: null,
+    removeOffer: null,
+    passiveOffer: null,
+    purchasedThisShopVisit: false,
   };
 };

@@ -49,6 +49,15 @@ export interface RunState {
   // Shop offer — set when a booster is purchased, cleared on pick or exit
   readonly shopOffer: ActiveShopOffer | null;
 
+  // Shop completion — remove slot, passive slot, skip tracking
+  readonly passives: readonly string[]; // owned passive ids
+  readonly removeOffer: { readonly options: readonly Block[] } | null;
+  readonly passiveOffer: {
+    readonly passive: string;
+    readonly cost: number;
+  } | null;
+  readonly purchasedThisShopVisit: boolean;
+
   // End state
   readonly endedReason: "spawn-collision" | "garbage-shift" | null;
 }
@@ -83,6 +92,10 @@ export const makeRunState = (rngSeed?: string): RunState => {
     garbageDropsThisRound: 0,
     achievementsUnlockedThisRun: [],
     shopOffer: null,
+    passives: [],
+    removeOffer: null,
+    passiveOffer: null,
+    purchasedThisShopVisit: false,
     endedReason: null,
   };
 };
@@ -152,6 +165,30 @@ export const isRunState = (value: unknown): value is RunState => {
       return false;
     if (!Array.isArray(so.options)) return false;
   }
+
+  // passives: array of strings
+  if (!Array.isArray(v.passives)) return false;
+  for (const p of v.passives as unknown[]) {
+    if (typeof p !== "string") return false;
+  }
+
+  // removeOffer: null or { options: Block[] }
+  if (v.removeOffer !== null && v.removeOffer !== undefined) {
+    if (typeof v.removeOffer !== "object") return false;
+    const ro = v.removeOffer as Record<string, unknown>;
+    if (!Array.isArray(ro.options)) return false;
+  }
+
+  // passiveOffer: null or { passive: string, cost: number }
+  if (v.passiveOffer !== null && v.passiveOffer !== undefined) {
+    if (typeof v.passiveOffer !== "object") return false;
+    const po = v.passiveOffer as Record<string, unknown>;
+    if (typeof po.passive !== "string") return false;
+    if (typeof po.cost !== "number") return false;
+  }
+
+  // purchasedThisShopVisit: boolean
+  if (typeof v.purchasedThisShopVisit !== "boolean") return false;
 
   return true;
 };

@@ -5,6 +5,13 @@ import {
   pickFromBooster,
   MAX_DECK_SIZE,
   PICKS_PER_BOOSTER,
+  REMOVE_COST,
+  MIN_DECK_SIZE,
+  purchaseRemove,
+  pickRemove,
+  generatePassiveOffer,
+  acceptPassive,
+  declinePassive,
 } from "./shop.ts";
 import { makeRunState } from "./runState.ts";
 import { makeRng } from "./rng.ts";
@@ -336,5 +343,270 @@ describe("pickFromBooster", () => {
     expect(result.shopOffer).toBeNull();
     // deck is NOT grown beyond max
     expect(result.deck.length).toBe(MAX_DECK_SIZE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// purchaseRemove
+// ---------------------------------------------------------------------------
+
+const makeShopBlock = (n: number) => ({
+  id: `1-test-block-${String(n)}-standard`,
+  cellCount: 1,
+  cells: [{ dx: 0, dy: 0 }],
+  effectId: "standard" as const,
+});
+
+describe("purchaseRemove", () => {
+  it("deducts REMOVE_COST ($3) and sets removeOffer", () => {
+    const rng = makeRng("remove-1");
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const state: RunState = {
+      ...makeRunState("remove-1"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+    };
+    const result = purchaseRemove(state, rng);
+    expect(result.gold).toBe(10 - REMOVE_COST);
+    expect(result.removeOffer).not.toBeNull();
+  });
+
+  it("blocked when gold < REMOVE_COST", () => {
+    const rng = makeRng("remove-2");
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const state: RunState = {
+      ...makeRunState("remove-2"),
+      status: "in-shop",
+      gold: 2,
+      deck,
+      drawQueue: [],
+    };
+    const result = purchaseRemove(state, rng);
+    expect(result).toBe(state);
+  });
+
+  it("blocked when deck+drawQueue <= MIN_DECK_SIZE", () => {
+    const rng = makeRng("remove-3");
+    const deck = Array.from({ length: MIN_DECK_SIZE }, (_, i) =>
+      makeShopBlock(i),
+    );
+    const state: RunState = {
+      ...makeRunState("remove-3"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+    };
+    const result = purchaseRemove(state, rng);
+    expect(result).toBe(state);
+  });
+
+  it("blocked when removeOffer already exists", () => {
+    const rng = makeRng("remove-4");
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const existingRemoveOffer = { options: [makeShopBlock(99)] };
+    const state: RunState = {
+      ...makeRunState("remove-4"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+      removeOffer: existingRemoveOffer,
+    };
+    const result = purchaseRemove(state, rng);
+    expect(result).toBe(state);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickRemove
+// ---------------------------------------------------------------------------
+
+describe("pickRemove", () => {
+  it("removes block from deck and clears offer", () => {
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const blockToRemove = deck[2]!;
+    const state: RunState = {
+      ...makeRunState("pickremove-1"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+      removeOffer: { options: [blockToRemove] },
+    };
+    const result = pickRemove(state, blockToRemove.id);
+    expect(result.removeOffer).toBeNull();
+    expect(result.deck.some((b) => b.id === blockToRemove.id)).toBe(false);
+    expect(result.deck.length).toBe(deck.length - 1);
+  });
+
+  it("rejects unknown block id — offer stays", () => {
+    const deck = Array.from({ length: 8 }, (_, i) => makeShopBlock(i));
+    const blockInOffer = deck[2]!;
+    const state: RunState = {
+      ...makeRunState("pickremove-2"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+      removeOffer: { options: [blockInOffer] },
+    };
+    const result = pickRemove(state, "NOT-IN-OFFER");
+    expect(result).toBe(state);
+  });
+
+  it("defensive: clears offer without removing when deck at min size", () => {
+    const deck = Array.from({ length: MIN_DECK_SIZE }, (_, i) =>
+      makeShopBlock(i),
+    );
+    const blockToRemove = deck[0]!;
+    const state: RunState = {
+      ...makeRunState("pickremove-3"),
+      status: "in-shop",
+      gold: 10,
+      deck,
+      drawQueue: [],
+      removeOffer: { options: [blockToRemove] },
+    };
+    const result = pickRemove(state, blockToRemove.id);
+    expect(result.removeOffer).toBeNull();
+    expect(result.deck.length).toBe(MIN_DECK_SIZE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generatePassiveOffer
+// ---------------------------------------------------------------------------
+
+describe("generatePassiveOffer", () => {
+  it("returns null ~50% of time (200 samples, ±10%)", () => {
+    const base: RunState = {
+      ...makeRunState("passive-stat"),
+      status: "in-shop",
+      passives: [],
+    };
+    let nullCount = 0;
+    const SAMPLES = 200;
+    for (let i = 0; i < SAMPLES; i++) {
+      const rng = makeRng(`passive-stat-${String(i)}`);
+      const offer = generatePassiveOffer(base, rng);
+      if (offer === null) nullCount++;
+    }
+    const nullRate = nullCount / SAMPLES;
+    expect(nullRate).toBeGreaterThan(0.4);
+    expect(nullRate).toBeLessThan(0.6);
+  });
+
+  it("returns a passive not yet owned", () => {
+    const base: RunState = {
+      ...makeRunState("passive-notowned"),
+      status: "in-shop",
+      passives: [],
+    };
+    // Try a few seeds until we get a non-null offer
+    let offer = null;
+    for (let i = 0; i < 50; i++) {
+      const rng = makeRng(`passive-notowned-${String(i)}`);
+      offer = generatePassiveOffer(base, rng);
+      if (offer !== null) break;
+    }
+    expect(offer).not.toBeNull();
+    if (offer !== null) {
+      expect(base.passives).not.toContain(offer.passive);
+    }
+  });
+
+  it("returns null when all passives owned", () => {
+    const allIds = [
+      "skippers-bonus",
+      "slow-pollution",
+      "spare-pocket",
+      "row-rebate",
+      "compound-interest",
+      "deep-pockets",
+      "starter-saver",
+      "lucky-draw",
+      "iron-foundation",
+    ];
+    const base: RunState = {
+      ...makeRunState("passive-allowned"),
+      status: "in-shop",
+      passives: allIds,
+    };
+    const rng = makeRng("passive-allowned");
+    const offer = generatePassiveOffer(base, rng);
+    expect(offer).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// acceptPassive / declinePassive
+// ---------------------------------------------------------------------------
+
+describe("acceptPassive", () => {
+  it("deducts cost and adds passive to passives list", () => {
+    const state: RunState = {
+      ...makeRunState("accept-1"),
+      status: "in-shop",
+      gold: 15,
+      passives: [],
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    const result = acceptPassive(state);
+    expect(result.gold).toBe(10);
+    expect(result.passives).toContain("skippers-bonus");
+    expect(result.passiveOffer).toBeNull();
+  });
+
+  it("rejects if gold < cost", () => {
+    const state: RunState = {
+      ...makeRunState("accept-2"),
+      status: "in-shop",
+      gold: 3,
+      passives: [],
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    const result = acceptPassive(state);
+    expect(result).toBe(state);
+  });
+
+  it("rejects duplicate passive (defensive)", () => {
+    const state: RunState = {
+      ...makeRunState("accept-3"),
+      status: "in-shop",
+      gold: 20,
+      passives: ["skippers-bonus"],
+      passiveOffer: { passive: "skippers-bonus", cost: 5 },
+    };
+    const result = acceptPassive(state);
+    expect(result).toBe(state);
+  });
+});
+
+describe("declinePassive", () => {
+  it("clears the passive offer", () => {
+    const state: RunState = {
+      ...makeRunState("decline-1"),
+      status: "in-shop",
+      gold: 10,
+      passives: [],
+      passiveOffer: { passive: "row-rebate", cost: 5 },
+    };
+    const result = declinePassive(state);
+    expect(result.passiveOffer).toBeNull();
+  });
+
+  it("no-op when no offer", () => {
+    const state: RunState = {
+      ...makeRunState("decline-2"),
+      status: "in-shop",
+      gold: 10,
+      passives: [],
+      passiveOffer: null,
+    };
+    const result = declinePassive(state);
+    expect(result).toBe(state);
   });
 });
