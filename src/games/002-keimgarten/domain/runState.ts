@@ -23,6 +23,10 @@ export interface RunState {
   readonly rngState: string;
   /** Tap affection counts keyed by creatureId (not instanceId). */
   readonly totalTapsByCreatureId: Readonly<Record<number, number>>;
+  /** Distinct creatureIds ever owned — persists across unown events. Sorted ascending. */
+  readonly uniqueOwnedIds: readonly number[];
+  /** Total cross-game currency already paid out for this save; used to compute delta on teardown. */
+  readonly lastYieldPaid: number;
 }
 
 export const STARTER_INSTANCE_ID = 1;
@@ -46,6 +50,8 @@ export const makeRunState = (rngSeed?: string): RunState => ({
   nextInstanceId: 2,
   rngState: rngSeed ?? "keim-default-seed",
   totalTapsByCreatureId: {},
+  uniqueOwnedIds: [0],
+  lastYieldPaid: 0,
 });
 
 interface MaybeRunState {
@@ -55,6 +61,8 @@ interface MaybeRunState {
   nextInstanceId?: unknown;
   rngState?: unknown;
   totalTapsByCreatureId?: unknown;
+  uniqueOwnedIds?: unknown;
+  lastYieldPaid?: unknown;
 }
 
 interface MaybeOwnedCreature {
@@ -97,6 +105,17 @@ export const isRunState = (value: unknown): value is RunState => {
   ) {
     return false;
   }
+  // uniqueOwnedIds is optional in saved data (migration: absent = computed from owned)
+  if (v.uniqueOwnedIds !== undefined) {
+    if (!Array.isArray(v.uniqueOwnedIds)) return false;
+    for (const item of v.uniqueOwnedIds as unknown[]) {
+      if (typeof item !== "number") return false;
+    }
+  }
+  // lastYieldPaid is optional in saved data (migration: absent = 0)
+  if (v.lastYieldPaid !== undefined && typeof v.lastYieldPaid !== "number") {
+    return false;
+  }
   for (const item of v.owned as unknown[]) {
     if (typeof item !== "object" || item === null) return false;
     const c = item as MaybeOwnedCreature;
@@ -121,10 +140,20 @@ export const isRunState = (value: unknown): value is RunState => {
  */
 export const normalizeRunState = (value: unknown): RunState => {
   const v = value as MaybeRunState & RunState;
+
+  // Backfill uniqueOwnedIds from owned array when field is absent (migration)
+  const uniqueOwnedIds: readonly number[] =
+    Array.isArray(v.uniqueOwnedIds) &&
+    (v.uniqueOwnedIds as unknown[]).every((x) => typeof x === "number")
+      ? (v.uniqueOwnedIds as readonly number[])
+      : [...new Set(v.owned.map((c) => c.creatureId))].sort((a, b) => a - b);
+
   return {
     ...(value as RunState),
     totalTapsByCreatureId: isRecordNumberNumber(v.totalTapsByCreatureId)
       ? v.totalTapsByCreatureId
       : {},
+    uniqueOwnedIds,
+    lastYieldPaid: typeof v.lastYieldPaid === "number" ? v.lastYieldPaid : 0,
   };
 };

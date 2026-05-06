@@ -3,6 +3,7 @@ import type {
   GameContext,
   SeededRng,
   Persistence,
+  Economy,
 } from "../../engine/Game.ts";
 import type { Stage } from "./render/stage.ts";
 import type { Disposer } from "../../services/input/types.ts";
@@ -13,6 +14,7 @@ import {
   normalizeRunState,
 } from "./domain/runState.ts";
 import type { RunState } from "./domain/runState.ts";
+import { compute as computeYield } from "./domain/currencyYield.ts";
 import { tick as tickCreature } from "./domain/creatureBehavior.ts";
 import type { PlayBounds } from "./domain/creatureBehavior.ts";
 import { applyAction } from "./domain/garden.ts";
@@ -51,6 +53,7 @@ export const createKeimgartenGame = (): Game & {
 } => {
   let runState: RunState = makeRunState();
   let persistence: Persistence | null = null;
+  let economy: Economy | null = null;
   let rng: SeededRng | null = null;
   let container: HTMLElement | null = null;
 
@@ -292,6 +295,7 @@ export const createKeimgartenGame = (): Game & {
   const init = async (ctx: GameContext): Promise<void> => {
     container = ctx.container;
     persistence = ctx.services.persistence;
+    economy = ctx.services.economy;
     rng = ctx.rng;
 
     // Restore from persistence; normalizeRunState fills in fields added in
@@ -395,10 +399,21 @@ export const createKeimgartenGame = (): Game & {
     // Pixi auto-renders via its ticker; nothing to do here.
   };
 
-  const teardown = (): void => {
+  const teardown = async (): Promise<void> => {
     if (tapDisposer !== null) {
       tapDisposer();
       tapDisposer = null;
+    }
+
+    // Emit cross-game currency delta before releasing services
+    if (persistence !== null && economy !== null) {
+      const currentYield = computeYield(runState);
+      const delta = currentYield - runState.lastYieldPaid;
+      if (delta > 0) {
+        economy.addYield("002-keimgarten", delta);
+        runState = { ...runState, lastYieldPaid: currentYield };
+        await persistence.save("keimgarten-run", runState, { debounceMs: 0 });
+      }
     }
 
     if (pixiAvailable && stage !== null) {
@@ -417,6 +432,7 @@ export const createKeimgartenGame = (): Game & {
 
     container = null;
     persistence = null;
+    economy = null;
     rng = null;
   };
 

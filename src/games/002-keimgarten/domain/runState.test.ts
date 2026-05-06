@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   makeRunState,
   isRunState,
+  normalizeRunState,
   SCHEMA_VERSION,
   STARTER_INSTANCE_ID,
 } from "./runState.ts";
+import { applyAction } from "./garden.ts";
 
 describe("makeRunState", () => {
   it("returns a valid RunState with schemaVersion=1", () => {
@@ -90,5 +92,109 @@ describe("isRunState", () => {
       owned: [{ ...s.owned[0], facing: 0 }],
     };
     expect(isRunState(bad)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// uniqueOwnedIds field
+// ---------------------------------------------------------------------------
+
+describe("makeRunState — uniqueOwnedIds", () => {
+  it("initializes uniqueOwnedIds to [0] (starter Keim)", () => {
+    const s = makeRunState();
+    expect(s.uniqueOwnedIds).toEqual([0]);
+  });
+
+  it("initializes lastYieldPaid to 0", () => {
+    const s = makeRunState();
+    expect(s.lastYieldPaid).toBe(0);
+  });
+});
+
+describe("isRunState — uniqueOwnedIds and lastYieldPaid", () => {
+  it("returns true when uniqueOwnedIds is a number array", () => {
+    const s = makeRunState();
+    expect(isRunState(s)).toBe(true);
+  });
+
+  it("returns false when uniqueOwnedIds is not an array", () => {
+    const s = makeRunState();
+    expect(isRunState({ ...s, uniqueOwnedIds: "bad" })).toBe(false);
+  });
+
+  it("returns false when lastYieldPaid is not a number", () => {
+    const s = makeRunState();
+    expect(isRunState({ ...s, lastYieldPaid: "nope" })).toBe(false);
+  });
+});
+
+describe("normalizeRunState — uniqueOwnedIds backfill", () => {
+  it("backfills uniqueOwnedIds from owned when field is absent", () => {
+    const s = makeRunState();
+    const raw: unknown = {
+      ...s,
+      uniqueOwnedIds: undefined,
+      lastYieldPaid: undefined,
+    };
+    const normalized = normalizeRunState(raw);
+    // owned has creatureId=0 → uniqueOwnedIds should be [0]
+    expect(normalized.uniqueOwnedIds).toEqual([0]);
+    expect(normalized.lastYieldPaid).toBe(0);
+  });
+
+  it("preserves existing uniqueOwnedIds when present", () => {
+    const s = makeRunState();
+    const raw: unknown = { ...s, uniqueOwnedIds: [0, 1, 5] };
+    const normalized = normalizeRunState(raw);
+    expect(normalized.uniqueOwnedIds).toEqual([0, 1, 5]);
+  });
+});
+
+describe("applyAction('own') — uniqueOwnedIds update", () => {
+  it("adds new creatureId to uniqueOwnedIds", () => {
+    const s = makeRunState();
+    const next = applyAction(s, {
+      type: "own",
+      creatureId: 3,
+      position: { x: 10, y: 10 },
+    });
+    expect(next.uniqueOwnedIds).toContain(3);
+  });
+
+  it("does not duplicate an existing creatureId in uniqueOwnedIds", () => {
+    const s = makeRunState();
+    // Own creature 0 again (already in uniqueOwnedIds from start)
+    const next = applyAction(s, {
+      type: "own",
+      creatureId: 0,
+      position: { x: 5, y: 5 },
+    });
+    const count = next.uniqueOwnedIds.filter((id) => id === 0).length;
+    expect(count).toBe(1);
+  });
+
+  it("uniqueOwnedIds grows monotonically across multiple owns", () => {
+    let s = makeRunState();
+    s = applyAction(s, {
+      type: "own",
+      creatureId: 1,
+      position: { x: 5, y: 5 },
+    });
+    s = applyAction(s, {
+      type: "own",
+      creatureId: 2,
+      position: { x: 5, y: 5 },
+    });
+    s = applyAction(s, {
+      type: "own",
+      creatureId: 1,
+      position: { x: 5, y: 5 },
+    }); // duplicate
+    expect(s.uniqueOwnedIds).toContain(0);
+    expect(s.uniqueOwnedIds).toContain(1);
+    expect(s.uniqueOwnedIds).toContain(2);
+    // Set semantics: no duplicates
+    const set = new Set(s.uniqueOwnedIds);
+    expect(set.size).toBe(s.uniqueOwnedIds.length);
   });
 });

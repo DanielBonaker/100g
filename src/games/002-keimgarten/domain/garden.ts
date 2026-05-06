@@ -37,10 +37,18 @@ export const applyAction = (
       walkTargetX: Math.round(action.position.x),
       walkTargetY: Math.round(action.position.y),
     };
+
+    // Maintain uniqueOwnedIds: add creatureId if not already present (sorted)
+    const alreadyOwned = state.uniqueOwnedIds.includes(action.creatureId);
+    const uniqueOwnedIds: readonly number[] = alreadyOwned
+      ? state.uniqueOwnedIds
+      : [...state.uniqueOwnedIds, action.creatureId].sort((a, b) => a - b);
+
     return {
       ...state,
       owned: [...state.owned, newCreature],
       nextInstanceId: state.nextInstanceId + 1,
+      uniqueOwnedIds,
     };
   }
 
